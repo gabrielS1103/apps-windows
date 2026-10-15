@@ -110,6 +110,13 @@ namespace MonitorPing
         [DllImport("dwmapi.dll")]
         public static extern int DwmGetWindowAttribute(IntPtr hwnd, int atributo, out int valor, int tam);
 
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int atributo, ref int valor, int tam);
+
+        // Cambia el estilo visual de un control (por ejemplo, barras de desplazamiento oscuras)
+        [DllImport("uxtheme.dll", CharSet = CharSet.Unicode)]
+        public static extern int SetWindowTheme(IntPtr hwnd, string aplicacion, string lista);
+
         // Raw Input: el ratón avisa a esta app de cada reporte aunque no tenga el foco
         public const int WM_INPUT = 0xFF;
         public const uint RID_INPUT = 0x10000003, RIDEV_INPUTSINK = 0x100, RIM_TYPEMOUSE = 0;
@@ -459,6 +466,8 @@ namespace MonitorPing
         public bool VerGfn = true, VerXcloud = true, VerEeuu = true, VerRouter = true, VerRaton = true;
         public int HzRaton;              // resultado de la última prueba de ratón (0 = sin probar)
         public string RatonMedido = "";
+        public string NombreTema = "clasico";
+        public bool Animado = true;      // los resplandores del fondo se mueven (temas nuevos)
 
         static string Ruta
         {
@@ -499,6 +508,8 @@ namespace MonitorPing
                     else if (k == "verraton") c.VerRaton = v == "1";
                     else if (k == "hzraton") c.HzRaton = int.Parse(v);
                     else if (k == "ratonmedido") c.RatonMedido = v;
+                    else if (k == "tema" && v != "") c.NombreTema = v;
+                    else if (k == "animado") c.Animado = v == "1";
                 }
             }
             catch { }
@@ -527,7 +538,9 @@ namespace MonitorPing
                     "verrouter=" + (VerRouter ? "1" : "0"),
                     "verraton=" + (VerRaton ? "1" : "0"),
                     "hzraton=" + HzRaton,
-                    "ratonmedido=" + RatonMedido
+                    "ratonmedido=" + RatonMedido,
+                    "tema=" + NombreTema,
+                    "animado=" + (Animado ? "1" : "0")
                 });
             }
             catch { }
@@ -769,10 +782,11 @@ namespace MonitorPing
 
     static class Calidad
     {
-        public static readonly Color Verde = Color.FromArgb(46, 204, 113);
-        public static readonly Color Amarillo = Color.FromArgb(241, 196, 15);
-        public static readonly Color Rojo = Color.FromArgb(231, 76, 60);
-        public static readonly Color Gris = Color.FromArgb(130, 135, 145);
+        // Los colores de estado los pone el tema (en Aurora son menta, amarillo pastel y rosa, por ejemplo)
+        public static Color Verde { get { return Tema.Actual.Verde; } }
+        public static Color Amarillo { get { return Tema.Actual.Amarillo; } }
+        public static Color Rojo { get { return Tema.Actual.Rojo; } }
+        public static Color Gris { get { return Tema.Actual.Gris; } }
 
         // Color del ping actual: verde por debajo de limiteVerde ms, amarillo por debajo de limiteAmarillo, rojo si no
         public static Color De(Estado e, int limiteVerde, int limiteAmarillo)
@@ -802,6 +816,452 @@ namespace MonitorPing
             if (p <= 0) return "0%";
             return (p < 10 ? p.ToString("0.0") : Math.Round(p).ToString()) + "%";
         }
+    }
+
+    // Apariencia de la app. Clásico es el aspecto original; los demás copian el estilo de los diseños de referencia:
+    // Aurora (azul marino con resplandores y degradados iridiscentes) y Cristal claro / violeta (cristal esmerilado sobre pastel)
+    class Tema
+    {
+        public string Clave, Nombre;
+        public bool Oscuro;              // texto claro sobre fondo oscuro
+        public bool Ventanas;            // también cambia Configuración y las pruebas (Clásico las deja como Windows)
+        public Color Fondo;              // color base del fondo
+        public Color[] Manchas;          // resplandores del fondo; null = fondo liso
+        public int AlfaManchas = 170;
+        public bool Estrellas;
+        public Color Panel, BordePanel;  // tarjetas de cristal (semitransparentes)
+        public Color Texto, TextoTenue, Separador, Acento, Grafica;
+        public Color[] Degradado;        // botón principal
+        public Color TextoDegradado;
+        public Color Verde, Amarillo, Rojo, Gris;      // estados en el widget y el icono
+        public Color TextoOk, TextoAviso, TextoMal;    // estados escritos en las ventanas
+        public Color ControlFondo, ControlBorde, MenuFondo;
+        public int Radio;                // esquinas redondeadas; 0 = rectas
+        public string FuenteTexto = "Segoe UI", FuenteFuerte = "Segoe UI Semibold", FuenteNumeros = "Segoe UI Semibold";
+        public FontStyle EstiloNumeros = FontStyle.Regular;
+
+        public bool Moderno { get { return Manchas != null; } }
+        public Color TenueVentana { get { return Ventanas ? TextoTenue : SystemColors.GrayText; } }
+
+        public static readonly Tema Clasico = new Tema
+        {
+            Clave = "clasico", Nombre = "Clásico", Oscuro = true, Ventanas = false,
+            Fondo = Color.FromArgb(22, 24, 29), Panel = Color.Transparent, BordePanel = Color.FromArgb(58, 62, 72),
+            Texto = Color.FromArgb(235, 238, 243), TextoTenue = Color.FromArgb(135, 140, 150), Separador = Color.FromArgb(42, 45, 53),
+            Acento = Color.FromArgb(52, 152, 219), Grafica = Color.FromArgb(32, 35, 42),
+            Verde = Color.FromArgb(46, 204, 113), Amarillo = Color.FromArgb(241, 196, 15), Rojo = Color.FromArgb(231, 76, 60), Gris = Color.FromArgb(130, 135, 145),
+            TextoOk = Color.FromArgb(25, 135, 70), TextoAviso = Color.FromArgb(190, 110, 0), TextoMal = Color.FromArgb(200, 50, 40),
+            ControlFondo = SystemColors.Window, ControlBorde = SystemColors.ControlDark, MenuFondo = SystemColors.Menu
+        };
+
+        // De la imagen: fondo azul marino con resplandores morado/azul y acentos iridiscentes menta-amarillo-rosa-lila
+        public static readonly Tema Aurora = new Tema
+        {
+            Clave = "aurora", Nombre = "Aurora", Oscuro = true, Ventanas = true,
+            Fondo = Color.FromArgb(9, 11, 32),
+            Manchas = new Color[] { Color.FromArgb(122, 52, 235), Color.FromArgb(32, 96, 236), Color.FromArgb(86, 30, 150), Color.FromArgb(22, 120, 200) },
+            AlfaManchas = 150, Estrellas = true,
+            Panel = Color.FromArgb(26, 255, 255, 255), BordePanel = Color.FromArgb(50, 255, 255, 255),
+            Texto = Color.FromArgb(246, 247, 255), TextoTenue = Color.FromArgb(160, 166, 212), Separador = Color.FromArgb(30, 255, 255, 255),
+            Acento = Color.FromArgb(183, 156, 247), Grafica = Color.FromArgb(22, 255, 255, 255),
+            Degradado = new Color[] { Color.FromArgb(168, 245, 200), Color.FromArgb(233, 245, 154), Color.FromArgb(246, 165, 216), Color.FromArgb(183, 156, 247) },
+            TextoDegradado = Color.FromArgb(22, 24, 52),
+            Verde = Color.FromArgb(125, 240, 195), Amarillo = Color.FromArgb(240, 226, 125), Rojo = Color.FromArgb(255, 112, 150), Gris = Color.FromArgb(128, 134, 180),
+            TextoOk = Color.FromArgb(125, 240, 195), TextoAviso = Color.FromArgb(240, 226, 125), TextoMal = Color.FromArgb(255, 125, 160),
+            ControlFondo = Color.FromArgb(22, 26, 60), ControlBorde = Color.FromArgb(74, 80, 140), MenuFondo = Color.FromArgb(20, 22, 54),
+            Radio = 14, FuenteTexto = "Segoe UI Variable Text", FuenteFuerte = "Segoe UI Variable Text Semibold",
+            FuenteNumeros = "Segoe UI Variable Display", EstiloNumeros = FontStyle.Bold
+        };
+
+        // Del video: cristal blanco esmerilado sobre degradados pastel (melocotón, celeste, menta, lila) con texto oscuro
+        public static readonly Tema CristalClaro = new Tema
+        {
+            Clave = "cristal", Nombre = "Cristal claro", Oscuro = false, Ventanas = true,
+            Fondo = Color.FromArgb(236, 239, 245),
+            Manchas = new Color[] { Color.FromArgb(252, 200, 172), Color.FromArgb(168, 200, 252), Color.FromArgb(190, 234, 220), Color.FromArgb(214, 202, 248) },
+            AlfaManchas = 210,
+            Panel = Color.FromArgb(150, 255, 255, 255), BordePanel = Color.FromArgb(210, 255, 255, 255),
+            Texto = Color.FromArgb(38, 44, 60), TextoTenue = Color.FromArgb(104, 112, 132), Separador = Color.FromArgb(34, 38, 44, 60),
+            Acento = Color.FromArgb(79, 124, 247), Grafica = Color.FromArgb(120, 255, 255, 255),
+            Degradado = new Color[] { Color.FromArgb(92, 136, 255), Color.FromArgb(150, 118, 250) },
+            TextoDegradado = Color.White,
+            Verde = Color.FromArgb(30, 158, 102), Amarillo = Color.FromArgb(222, 136, 36), Rojo = Color.FromArgb(222, 70, 96), Gris = Color.FromArgb(146, 152, 168),
+            TextoOk = Color.FromArgb(30, 150, 98), TextoAviso = Color.FromArgb(200, 120, 20), TextoMal = Color.FromArgb(210, 60, 86),
+            ControlFondo = Color.FromArgb(250, 251, 254), ControlBorde = Color.FromArgb(206, 212, 226), MenuFondo = Color.FromArgb(246, 247, 252),
+            Radio = 14, FuenteTexto = "Segoe UI Variable Text", FuenteFuerte = "Segoe UI Variable Text Semibold",
+            FuenteNumeros = "Segoe UI Variable Display", EstiloNumeros = FontStyle.Bold
+        };
+
+        // Del inicio del video: cristal violeta sobre degradado rosa y azul con texto blanco
+        public static readonly Tema CristalVioleta = new Tema
+        {
+            Clave = "violeta", Nombre = "Cristal violeta", Oscuro = true, Ventanas = true,
+            Fondo = Color.FromArgb(70, 46, 138),
+            Manchas = new Color[] { Color.FromArgb(240, 138, 205), Color.FromArgb(96, 136, 255), Color.FromArgb(136, 80, 228), Color.FromArgb(205, 92, 214) },
+            AlfaManchas = 185,
+            Panel = Color.FromArgb(70, 36, 18, 84), BordePanel = Color.FromArgb(70, 255, 255, 255),
+            Texto = Color.FromArgb(252, 250, 255), TextoTenue = Color.FromArgb(218, 208, 242), Separador = Color.FromArgb(40, 255, 255, 255),
+            Acento = Color.FromArgb(244, 186, 255), Grafica = Color.FromArgb(50, 30, 12, 70),
+            Degradado = new Color[] { Color.FromArgb(255, 172, 222), Color.FromArgb(152, 172, 255) },
+            TextoDegradado = Color.FromArgb(52, 26, 92),
+            Verde = Color.FromArgb(130, 240, 185), Amarillo = Color.FromArgb(255, 222, 120), Rojo = Color.FromArgb(255, 125, 160), Gris = Color.FromArgb(196, 184, 226),
+            TextoOk = Color.FromArgb(140, 245, 190), TextoAviso = Color.FromArgb(255, 222, 120), TextoMal = Color.FromArgb(255, 140, 170),
+            ControlFondo = Color.FromArgb(62, 40, 118), ControlBorde = Color.FromArgb(132, 102, 204), MenuFondo = Color.FromArgb(66, 42, 124),
+            Radio = 14, FuenteTexto = "Segoe UI Variable Text", FuenteFuerte = "Segoe UI Variable Text Semibold",
+            FuenteNumeros = "Segoe UI Variable Display", EstiloNumeros = FontStyle.Bold
+        };
+
+        public static readonly Tema[] Todos = { Clasico, Aurora, CristalClaro, CristalVioleta };
+        public static Tema Actual = Clasico;
+
+        public static Tema Buscar(string clave)
+        {
+            foreach (Tema t in Todos)
+                if (string.Equals(t.Clave, clave, StringComparison.OrdinalIgnoreCase)) return t;
+            return Clasico;
+        }
+    }
+
+    // Dibujo y estilo compartidos por el widget, el menú y las ventanas
+    static class Estilo
+    {
+        public static Color Mezclar(Color a, Color b, double t)
+        {
+            return Color.FromArgb((int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
+        }
+
+        // Fuente del tema; si esa tipografía no está instalada, Segoe UI
+        public static Font Fuente(string familia, float tam, FontStyle estilo, GraphicsUnit unidad)
+        {
+            Font f = new Font(familia, tam, estilo, unidad);
+            if (string.Equals(f.Name, familia, StringComparison.OrdinalIgnoreCase)) return f;
+            f.Dispose();
+            return new Font("Segoe UI", tam, estilo, unidad);
+        }
+
+        // Fondo del tema: color base, resplandores que se desplazan despacio según "fase" y, en Aurora, estrellitas
+        public static void PintarFondo(Graphics g, RectangleF r, Tema t, double fase)
+        {
+            PintarManchas(g, r, t, fase);
+            if (t.Estrellas) PintarEstrellas(g, r, fase);
+        }
+
+        // Los resplandores son degradados muy suaves: el widget los pinta en una imagen pequeña y la estira,
+        // así la animación cuesta muy poco
+        public static void PintarManchas(Graphics g, RectangleF r, Tema t, double fase)
+        {
+            using (SolidBrush b = new SolidBrush(t.Fondo)) g.FillRectangle(b, r);
+            if (t.Manchas == null) return;
+            SmoothingMode antes = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            for (int i = 0; i < t.Manchas.Length; i++)
+            {
+                PointF c = CentroMancha(i, fase, r);
+                float rad = RadioMancha(i, r);
+                PintarMancha(g, new RectangleF(c.X - rad, c.Y - rad, rad * 2, rad * 2), t, i);
+            }
+            g.SmoothingMode = antes;
+        }
+
+        // Cada resplandor se mueve en una curva distinta y lenta
+        public static PointF CentroMancha(int i, double fase, RectangleF r)
+        {
+            double a = fase * (0.6 + 0.17 * i) + i * 1.9;
+            return new PointF(r.Left + r.Width * (float)(0.5 + 0.45 * Math.Sin(a)), r.Top + r.Height * (float)(0.5 + 0.45 * Math.Cos(a * 0.8 + i)));
+        }
+
+        public static float RadioMancha(int i, RectangleF r) { return Math.Max(r.Width, r.Height) * (0.5f + 0.08f * i); }
+
+        // Un resplandor: color en el centro que se desvanece hasta transparente en el borde
+        public static void PintarMancha(Graphics g, RectangleF elipse, Tema t, int i)
+        {
+            using (GraphicsPath p = new GraphicsPath())
+            {
+                p.AddEllipse(elipse);
+                using (PathGradientBrush pg = new PathGradientBrush(p))
+                {
+                    pg.CenterColor = Color.FromArgb(t.AlfaManchas, t.Manchas[i]);
+                    pg.SurroundColors = new Color[] { Color.FromArgb(0, t.Manchas[i]) };
+                    g.FillPath(pg, p);
+                }
+            }
+        }
+
+        public static void PintarEstrellas(Graphics g, RectangleF r, double fase)
+        {
+            SmoothingMode antes = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Random rnd = new Random(7); // siempre las mismas posiciones: solo titilan
+            for (int i = 0; i < 26; i++)
+            {
+                float x = r.Left + (float)rnd.NextDouble() * r.Width, y = r.Top + (float)rnd.NextDouble() * r.Height;
+                float d = 0.8f + (float)rnd.NextDouble() * 1.4f;
+                int alfa = (int)(90 + 110 * (0.5 + 0.5 * Math.Sin(fase * 6 + i * 1.7)));
+                using (SolidBrush b = new SolidBrush(Color.FromArgb(alfa, 255, 255, 255))) g.FillEllipse(b, x, y, d, d);
+            }
+            g.SmoothingMode = antes;
+        }
+
+        static int ColorRef(Color c) { return c.R | (c.G << 8) | (c.B << 16); }
+
+        // Barra de título del color del tema (Windows 11) y modo oscuro para los temas oscuros
+        public static void BarraTitulo(IntPtr ventana, Tema t)
+        {
+            int oscuro = t.Oscuro ? 1 : 0, titulo = ColorRef(t.MenuFondo), texto = ColorRef(t.Texto), borde = ColorRef(t.ControlBorde);
+            Native.DwmSetWindowAttribute(ventana, 20, ref oscuro, 4); // DWMWA_USE_IMMERSIVE_DARK_MODE
+            Native.DwmSetWindowAttribute(ventana, 35, ref titulo, 4); // DWMWA_CAPTION_COLOR
+            Native.DwmSetWindowAttribute(ventana, 36, ref texto, 4);  // DWMWA_TEXT_COLOR
+            Native.DwmSetWindowAttribute(ventana, 34, ref borde, 4);  // DWMWA_BORDER_COLOR
+        }
+
+        // Aplica el tema a todos los controles de una ventana
+        public static void Controles(Control raiz, Tema t, Button principal)
+        {
+            foreach (Control c in raiz.Controls)
+            {
+                if (c is Label)
+                {
+                    c.BackColor = Color.Transparent;
+                    if ("titulo".Equals(c.Tag)) c.ForeColor = t.Acento;
+                    else if (c.ForeColor == SystemColors.GrayText) c.ForeColor = t.TextoTenue;
+                    else if (c.ForeColor == SystemColors.ControlText) c.ForeColor = t.Texto;
+                }
+                else if (c is CheckBox) { c.BackColor = Color.Transparent; c.ForeColor = t.Texto; }
+                else if (c is Button) Boton((Button)c, t, c == principal || "principal".Equals(c.Tag));
+                else if (c is TextBox)
+                {
+                    ((TextBox)c).BorderStyle = BorderStyle.FixedSingle;
+                    c.BackColor = t.ControlFondo;
+                    c.ForeColor = t.Texto;
+                }
+                else if (c is ComboBox)
+                {
+                    ((ComboBox)c).FlatStyle = FlatStyle.Flat;
+                    c.BackColor = t.ControlFondo;
+                    c.ForeColor = t.Texto;
+                    if (t.Oscuro) Native.SetWindowTheme(c.Handle, "DarkMode_CFD", null);
+                }
+                else if (c is ListBox)
+                {
+                    ((ListBox)c).BorderStyle = BorderStyle.FixedSingle;
+                    c.BackColor = t.ControlFondo;
+                    c.ForeColor = t.Texto;
+                    if (t.Oscuro) Native.SetWindowTheme(c.Handle, "DarkMode_Explorer", null);
+                }
+                else if (c is ListView) Lista((ListView)c, t);
+                else if (c is ProgressBar)
+                {
+                    Native.SetWindowTheme(c.Handle, "", ""); // estilo clásico: así respeta los colores
+                    c.ForeColor = t.Acento;
+                    c.BackColor = t.ControlFondo;
+                }
+                else if (c is TrackBar) c.BackColor = t.Fondo;
+                else if (c is Panel) c.BackColor = Color.Transparent;
+                if (c.HasChildren && !(c is ComboBox)) Controles(c, t, principal);
+            }
+        }
+
+        static void Lista(ListView lv, Tema t)
+        {
+            lv.BackColor = t.ControlFondo;
+            lv.ForeColor = t.Texto;
+            lv.BorderStyle = BorderStyle.FixedSingle;
+            lv.OwnerDraw = true;
+            Color cabecera = Mezclar(t.ControlFondo, t.Acento, 0.18);
+            lv.DrawColumnHeader += delegate(object s, DrawListViewColumnHeaderEventArgs e)
+            {
+                using (SolidBrush b = new SolidBrush(cabecera)) e.Graphics.FillRectangle(b, e.Bounds);
+                Rectangle r = e.Bounds;
+                r.Inflate(-3, 0);
+                TextFormatFlags f = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis |
+                                    (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left);
+                TextRenderer.DrawText(e.Graphics, e.Header.Text, lv.Font, r, t.TextoTenue, f);
+            };
+            lv.DrawItem += delegate(object s, DrawListViewItemEventArgs e) { e.DrawDefault = true; };
+            lv.DrawSubItem += delegate(object s, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
+            if (lv.Columns.Count > 0) lv.Columns[lv.Columns.Count - 1].Width = -2; // la última columna llena el resto
+            if (t.Oscuro) Native.SetWindowTheme(lv.Handle, "DarkMode_Explorer", null);
+        }
+
+        // Botones en forma de píldora; el principal con el degradado del tema
+        static void Boton(Button b, Tema t, bool principal)
+        {
+            b.FlatStyle = FlatStyle.Flat;
+            b.FlatAppearance.BorderSize = 0;
+            b.FlatAppearance.MouseOverBackColor = Color.Transparent;
+            b.FlatAppearance.MouseDownBackColor = Color.Transparent;
+            b.BackColor = Color.Transparent;
+            b.ForeColor = t.Texto;
+            b.Padding = new Padding(10, 3, 10, 3);
+            b.Cursor = Cursors.Hand;
+            b.MouseEnter += delegate { b.Invalidate(); };
+            b.MouseLeave += delegate { b.Invalidate(); };
+            b.EnabledChanged += delegate { b.Invalidate(); };
+            b.Paint += delegate(object s, PaintEventArgs e) { DibujarBoton(b, e.Graphics, t, principal); };
+        }
+
+        static void DibujarBoton(Button b, Graphics g, Tema t, bool principal)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            Rectangle r = b.ClientRectangle;
+            r.Width -= 1;
+            r.Height -= 1;
+            bool sobre = b.Enabled && b.ClientRectangle.Contains(b.PointToClient(Cursor.Position));
+            bool degradado = principal && t.Degradado != null && b.Enabled;
+            using (GraphicsPath p = WidgetForm.Redondeado(r, r.Height / 2f))
+            {
+                Brush relleno;
+                if (degradado)
+                {
+                    LinearGradientBrush lg = new LinearGradientBrush(r, t.Degradado[0], t.Degradado[t.Degradado.Length - 1], LinearGradientMode.Horizontal);
+                    if (t.Degradado.Length > 2)
+                    {
+                        ColorBlend mezcla = new ColorBlend(t.Degradado.Length);
+                        mezcla.Colors = t.Degradado;
+                        float[] pos = new float[t.Degradado.Length];
+                        for (int i = 0; i < pos.Length; i++) pos[i] = i / (float)(pos.Length - 1);
+                        mezcla.Positions = pos;
+                        lg.InterpolationColors = mezcla;
+                    }
+                    relleno = lg;
+                }
+                else relleno = new SolidBrush(sobre ? Mezclar(t.ControlFondo, t.Acento, 0.25) : t.ControlFondo);
+                using (relleno) g.FillPath(relleno, p);
+                if (!degradado)
+                    using (Pen borde = new Pen(sobre ? t.Acento : t.ControlBorde)) g.DrawPath(borde, p);
+                else if (sobre)
+                    using (Pen borde = new Pen(Color.FromArgb(160, 255, 255, 255), 1.5f)) g.DrawPath(borde, p);
+            }
+            Color texto = !b.Enabled ? t.TextoTenue : degradado ? t.TextoDegradado : t.Texto;
+            TextRenderer.DrawText(g, b.Text, b.Font, b.ClientRectangle, texto,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        }
+    }
+
+    // Ventanas de la app (configuración y pruebas): con los temas nuevos usan el fondo, los colores y la barra de título del tema
+    class VentanaTema : Form
+    {
+        protected readonly Tema tema = Tema.Actual;
+
+        public VentanaTema()
+        {
+            if (!tema.Ventanas) return;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+            BackColor = tema.Fondo;
+            ForeColor = tema.Texto;
+        }
+
+        // Se llama al final del constructor de cada ventana, cuando ya están todos los controles
+        protected void AplicarTema()
+        {
+            if (!tema.Ventanas) return;
+            Font = Estilo.Fuente(tema.FuenteTexto, 9f, FontStyle.Regular, GraphicsUnit.Point);
+            Estilo.Controles(this, tema, AcceptButton as Button);
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            if (tema.Ventanas) Estilo.BarraTitulo(Handle, tema);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (!tema.Ventanas) { base.OnPaintBackground(e); return; }
+            Estilo.PintarFondo(e.Graphics, ClientRectangle, tema, 1.7); // en las ventanas el fondo queda quieto
+        }
+
+        // El control deslizante de Windows no admite fondo transparente: se le pone el color que tiene el fondo justo detrás
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (!tema.Ventanas) return;
+            List<TrackBar> barras = new List<TrackBar>();
+            BuscarBarras(this, barras);
+            if (barras.Count == 0 || ClientSize.Width < 1 || ClientSize.Height < 1) return;
+            using (Bitmap bmp = new Bitmap(ClientSize.Width, ClientSize.Height))
+            {
+                using (Graphics g = Graphics.FromImage(bmp)) Estilo.PintarFondo(g, new RectangleF(0, 0, bmp.Width, bmp.Height), tema, 1.7);
+                foreach (TrackBar tb in barras)
+                {
+                    Point p = PointToClient(tb.Parent.PointToScreen(new Point(tb.Left + tb.Width / 2, tb.Top + tb.Height / 2)));
+                    if (p.X >= 0 && p.Y >= 0 && p.X < bmp.Width && p.Y < bmp.Height) tb.BackColor = bmp.GetPixel(p.X, p.Y);
+                }
+            }
+        }
+
+        static void BuscarBarras(Control c, List<TrackBar> lista)
+        {
+            foreach (Control h in c.Controls)
+            {
+                if (h is TrackBar) lista.Add((TrackBar)h);
+                else if (h.HasChildren) BuscarBarras(h, lista);
+            }
+        }
+    }
+
+    // Menú de la bandeja con los colores del tema
+    class RenderMenu : ToolStripProfessionalRenderer
+    {
+        readonly Tema t;
+
+        public RenderMenu(Tema tema) : base(new ColoresMenu(tema)) { t = tema; }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = e.Item.Enabled ? t.Texto : t.TextoTenue;
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderArrow(ToolStripArrowRenderEventArgs e)
+        {
+            e.ArrowColor = t.Texto;
+            base.OnRenderArrow(e);
+        }
+
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+        {
+            Rectangle r = e.ImageRectangle;
+            r.Inflate(2, 2);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (GraphicsPath p = WidgetForm.Redondeado(r, 4))
+            using (SolidBrush b = new SolidBrush(Estilo.Mezclar(t.MenuFondo, t.Acento, 0.45))) e.Graphics.FillPath(b, p);
+            using (Pen pen = new Pen(t.Texto, 2f))
+                e.Graphics.DrawLines(pen, new PointF[] {
+                    new PointF(r.Left + r.Width * 0.26f, r.Top + r.Height * 0.52f),
+                    new PointF(r.Left + r.Width * 0.44f, r.Top + r.Height * 0.70f),
+                    new PointF(r.Left + r.Width * 0.76f, r.Top + r.Height * 0.32f) });
+        }
+    }
+
+    class ColoresMenu : ProfessionalColorTable
+    {
+        readonly Color fondo, seleccion, borde;
+
+        public ColoresMenu(Tema t)
+        {
+            UseSystemColors = false;
+            fondo = t.MenuFondo;
+            seleccion = Estilo.Mezclar(t.MenuFondo, t.Acento, t.Oscuro ? 0.32 : 0.2);
+            borde = t.ControlBorde;
+        }
+
+        public override Color ToolStripDropDownBackground { get { return fondo; } }
+        public override Color ImageMarginGradientBegin { get { return fondo; } }
+        public override Color ImageMarginGradientMiddle { get { return fondo; } }
+        public override Color ImageMarginGradientEnd { get { return fondo; } }
+        public override Color MenuBorder { get { return borde; } }
+        public override Color MenuItemBorder { get { return seleccion; } }
+        public override Color MenuItemSelected { get { return seleccion; } }
+        public override Color MenuItemSelectedGradientBegin { get { return seleccion; } }
+        public override Color MenuItemSelectedGradientEnd { get { return seleccion; } }
+        public override Color MenuItemPressedGradientBegin { get { return seleccion; } }
+        public override Color MenuItemPressedGradientEnd { get { return seleccion; } }
+        public override Color SeparatorDark { get { return borde; } }
+        public override Color SeparatorLight { get { return fondo; } }
+        public override Color CheckBackground { get { return seleccion; } }
+        public override Color CheckSelectedBackground { get { return seleccion; } }
+        public override Color CheckPressedBackground { get { return seleccion; } }
     }
 
     // Lee los encabezados de los paquetes UDP del stream (WebRTC/RTP de GeForce NOW o xCloud) para medir la pérdida,
@@ -1484,7 +1944,7 @@ namespace MonitorPing
         IntPtr ganchoMostrar, ganchoPrimerPlano;
         NotifyIcon tray;
         ContextMenuStrip menu;
-        ToolStripMenuItem itemWidget, itemBloquear, itemCompacto, itemOpacidad, itemEncima, itemInicio, itemAnalisis;
+        ToolStripMenuItem itemWidget, itemBloquear, itemCompacto, itemOpacidad, itemEncima, itemInicio, itemAnalisis, itemTema, itemAnimado;
         WidgetForm widget;
         System.Windows.Forms.Timer timer;
         Sonda gfn = new Sonda(), xcloud = new Sonda(), eeuu = new Sonda(), router = new Sonda();
@@ -1507,6 +1967,7 @@ namespace MonitorPing
         public TrayContext()
         {
             cfg = Config.Cargar();
+            Tema.Actual = Tema.Buscar(cfg.NombreTema);
             MigrarInicio();
             inicioWindows = InicioConWindows();
 
@@ -1522,6 +1983,17 @@ namespace MonitorPing
                 it.Tag = valor;
                 itemOpacidad.DropDownItems.Add(it);
             }
+            itemTema = new ToolStripMenuItem("Tema");
+            foreach (Tema t in Tema.Todos)
+            {
+                string clave = t.Clave;
+                ToolStripMenuItem it = new ToolStripMenuItem(t.Nombre, null, delegate { cfg.NombreTema = clave; cfg.Guardar(); AplicarTema(); });
+                it.Tag = clave;
+                itemTema.DropDownItems.Add(it);
+            }
+            itemAnimado = new ToolStripMenuItem("Fondo animado", null, delegate { cfg.Animado = !cfg.Animado; cfg.Guardar(); AplicarTema(); });
+            itemTema.DropDownItems.Add(new ToolStripSeparator());
+            itemTema.DropDownItems.Add(itemAnimado);
             itemEncima = new ToolStripMenuItem("Siempre encima", null, delegate { cfg.Encima = !cfg.Encima; cfg.Guardar(); AplicarAspecto(); });
             itemInicio = new ToolStripMenuItem("Iniciar con Windows", null, delegate { FijarInicioConWindows(!inicioWindows); });
             itemAnalisis = new ToolStripMenuItem("");
@@ -1530,6 +2002,7 @@ namespace MonitorPing
             menu.Items.Add(itemBloquear);
             menu.Items.Add(itemCompacto);
             menu.Items.Add(itemOpacidad);
+            menu.Items.Add(itemTema);
             menu.Items.Add(itemEncima);
             menu.Items.Add(itemInicio);
             menu.Items.Add("Configuración...", null, delegate { AbrirConfig(); });
@@ -1547,10 +2020,16 @@ namespace MonitorPing
                 itemEncima.Checked = cfg.Encima;
                 itemInicio.Checked = inicioWindows;
                 foreach (ToolStripMenuItem it in itemOpacidad.DropDownItems) it.Checked = (int)it.Tag == cfg.Opacidad;
+                foreach (ToolStripItem it in itemTema.DropDownItems)
+                    if (it is ToolStripMenuItem && it.Tag != null) ((ToolStripMenuItem)it).Checked = (string)it.Tag == Tema.Actual.Clave;
+                itemAnimado.Checked = cfg.Animado;
+                itemAnimado.Enabled = Tema.Actual.Moderno;
                 itemAnalisis.Text = TextoAnalisis();
             };
 
             widget = new WidgetForm();
+            widget.CambiarTema(cfg.Animado);
+            EstiloMenu();
             widget.ContextMenuStrip = menu;
             widget.CerrarPulsado += delegate { widget.Hide(); };
             widget.Movido += delegate { cfg.WidgetX = widget.Left; cfg.WidgetY = widget.Top; cfg.Guardar(); };
@@ -1894,7 +2373,7 @@ namespace MonitorPing
             string tirones = r.Tirones == 1 ? "1 tirón" : r.Tirones + " tirones";
             f.Detalle1 = tirones;
             f.Detalle1Malo = r.Tirones > 0;
-            f.Detalle2 = "pausas PC " + r.PausaPc + " ms";
+            f.Detalle2 = "PC " + r.PausaPc + " ms"; // corto: si no, se pisa con los tirones
             f.Corto1 = tirones;
             f.Corto2 = "PC " + r.PausaPc + " ms";
             if (cfg.HzRaton <= 0) f.Sub = "Bandeja > Probar ratón para ver sus Hz";
@@ -2050,8 +2529,10 @@ namespace MonitorPing
                     tam -= 0.5f;
                     f = FuenteIcono(tam);
                 }
+                // Texto oscuro sobre colores claros (amarillo, menta...) y blanco sobre los oscuros
+                double luz = (0.299 * fondo.R + 0.587 * fondo.G + 0.114 * fondo.B) / 255;
                 using (f)
-                using (SolidBrush tinta = new SolidBrush(fondo == Calidad.Amarillo ? Color.Black : Color.White))
+                using (SolidBrush tinta = new SolidBrush(luz > 0.62 ? Color.FromArgb(20, 24, 40) : Color.White))
                     g.DrawString(texto, f, tinta, new RectangleF(0, 0, s, s + 1), sf);
 
                 IntPtr h = bmp.GetHicon();
@@ -2077,6 +2558,38 @@ namespace MonitorPing
             int n = 0;
             foreach (bool v in new bool[] { cfg.VerGfn, cfg.VerXcloud, cfg.VerEeuu, cfg.VerRouter, cfg.VerRaton }) if (v) n++;
             return n;
+        }
+
+        // Cambia el tema al instante: widget, menú e icono. Las ventanas lo toman la próxima vez que se abren
+        void AplicarTema()
+        {
+            Tema.Actual = Tema.Buscar(cfg.NombreTema);
+            widget.CambiarTema(cfg.Animado);
+            EstiloMenu();
+            claveIcono = null; // se vuelve a dibujar con los colores del tema
+            Refrescar();
+        }
+
+        void EstiloMenu()
+        {
+            Tema t = Tema.Actual;
+            ToolStripRenderer render = t.Ventanas ? (ToolStripRenderer)new RenderMenu(t) : new ToolStripProfessionalRenderer();
+            menu.Renderer = render;
+            ColorearMenu(menu.Items, t.Ventanas ? t.Texto : SystemColors.ControlText, render);
+        }
+
+        static void ColorearMenu(ToolStripItemCollection items, Color texto, ToolStripRenderer render)
+        {
+            foreach (ToolStripItem it in items)
+            {
+                it.ForeColor = texto;
+                ToolStripMenuItem m = it as ToolStripMenuItem;
+                if (m != null && m.HasDropDownItems)
+                {
+                    m.DropDown.Renderer = render;
+                    ColorearMenu(m.DropDownItems, texto, render);
+                }
+            }
         }
 
         void AplicarRaton()
@@ -2147,7 +2660,11 @@ namespace MonitorPing
                 cfg.VerEeuu = formAbierto.VerEeuu;
                 cfg.VerRouter = formAbierto.VerRouter;
                 cfg.VerRaton = formAbierto.VerRaton;
+                bool cambiaTema = cfg.NombreTema != formAbierto.NombreTema || cfg.Animado != formAbierto.Animado;
+                cfg.NombreTema = formAbierto.NombreTema;
+                cfg.Animado = formAbierto.Animado;
                 cfg.Guardar();
+                if (cambiaTema) AplicarTema();
                 if (formAbierto.IniciarConWindows != inicioWindows) FijarInicioConWindows(formAbierto.IniciarConWindows);
                 eeuu.FijarDestino(cfg.ServidorEEUU, 0, false);
                 ActualizarNubes();
@@ -2235,12 +2752,17 @@ namespace MonitorPing
         const int XPing = 165, XGrafica = 256;
         const int AnchoCompacto = 300, AltoFilaCompacta = 20, MargenCompacto = 5;
 
-        static readonly Color Texto = Color.FromArgb(235, 238, 243);
-        static readonly Color TextoTenue = Color.FromArgb(135, 140, 150);
-        static readonly Color Separador = Color.FromArgb(42, 45, 53);
-        static readonly Color Acento = Color.FromArgb(52, 152, 219);
-
         float k = 1f;
+        // Fondo animado de los temas nuevos: los resplandores se desplazan despacio
+        readonly System.Windows.Forms.Timer animacion = new System.Windows.Forms.Timer();
+        readonly Stopwatch relojAnimacion = Stopwatch.StartNew();
+        double fase = 1.2;
+        bool animado;
+        Bitmap capa;
+        Bitmap[] manchas;   // resplandores ya difuminados, listos para pegar
+        Tema manchasTema;
+        Size manchasTam;
+        bool capaSucia = true; // hay que volver a dibujar el contenido (llegaron datos, cambió el tema o el tamaño)
         bool compacto = true, bloqueado = true;
         int ancho = AnchoCompacto, alto = 100;
         Fila[] filas = new Fila[0];
@@ -2259,23 +2781,13 @@ namespace MonitorPing
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.Manual;
-            BackColor = Color.FromArgb(22, 24, 29);
+            BackColor = Tema.Actual.Fondo;
             AllowTransparency = true;
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
             using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) k = g.DpiX / 96f;
-
-            fTitulo = new Font("Segoe UI", 11f, GraphicsUnit.Pixel);
-            fNombre = new Font("Segoe UI Semibold", 13f, GraphicsUnit.Pixel);
-            fSub = new Font("Segoe UI", 10.5f, GraphicsUnit.Pixel);
-            fPing = new Font("Segoe UI Semibold", 24f, GraphicsUnit.Pixel);
-            fMs = new Font("Segoe UI", 10.5f, GraphicsUnit.Pixel);
-            fDetalle = new Font("Segoe UI", 10.5f, GraphicsUnit.Pixel);
-            fDiag = new Font("Segoe UI Semibold", 12f, GraphicsUnit.Pixel);
-            fNombreC = new Font("Segoe UI Semibold", 11.5f, GraphicsUnit.Pixel);
-            fValorC = new Font("Segoe UI Semibold", 13f, GraphicsUnit.Pixel);
-            fUnidadC = new Font("Segoe UI", 9.5f, GraphicsUnit.Pixel);
-            fDetalleC = new Font("Segoe UI", 10.5f, GraphicsUnit.Pixel);
-            fDiagC = new Font("Segoe UI Semibold", 11f, GraphicsUnit.Pixel);
+            CrearFuentes(Tema.Actual);
+            animacion.Interval = 160; // unas 6 imágenes por segundo: de sobra para un movimiento tan lento
+            animacion.Tick += delegate { fase = 1.2 + relojAnimacion.Elapsed.TotalSeconds * 0.12; Invalidate(); };
 
             recorte = new StringFormat();
             recorte.Trimming = StringTrimming.EllipsisCharacter;
@@ -2310,6 +2822,7 @@ namespace MonitorPing
             ancho = compacto ? AnchoCompacto : AnchoNormal;
             alto = compacto ? MargenCompacto * 2 + (numFilas + 1) * AltoFilaCompacta : AltoCabecera + numFilas * AltoFila + AltoPie;
             ClientSize = new Size(S(ancho), S(alto));
+            AjustarRegion();
             // Nunca 1.0: así la ventana sigue siendo "layered" y el modo monitor (clic a través) funciona también al 100 %
             Opacity = Math.Min(0.99, Math.Max(30, Math.Min(100, opacidad)) / 100.0);
             bloqueado = esBloqueado;
@@ -2319,7 +2832,59 @@ namespace MonitorPing
                 ex = bloqueado ? ex | Native.WS_EX_TRANSPARENT | Native.WS_EX_LAYERED : ex & ~Native.WS_EX_TRANSPARENT;
                 Native.SetWindowLong(Handle, Native.GWL_EXSTYLE, ex);
             }
+            capaSucia = true;
             Invalidate();
+        }
+
+        public void CambiarTema(bool animar)
+        {
+            Tema t = Tema.Actual;
+            BackColor = t.Fondo;
+            CrearFuentes(t);
+            AjustarRegion();
+            animado = animar && t.Moderno;
+            if (!animado) fase = 1.2;
+            if (animado && Visible) animacion.Start();
+            else animacion.Stop();
+            capaSucia = true;
+            Invalidate();
+        }
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (animado && Visible) animacion.Start();
+            else animacion.Stop();
+        }
+
+        void CrearFuentes(Tema t)
+        {
+            if (fTitulo != null)
+                foreach (Font f in new Font[] { fTitulo, fNombre, fSub, fPing, fMs, fDetalle, fDiag, fNombreC, fValorC, fUnidadC, fDetalleC, fDiagC }) f.Dispose();
+            GraphicsUnit px = GraphicsUnit.Pixel;
+            fTitulo = Estilo.Fuente(t.FuenteTexto, 11f, FontStyle.Regular, px);
+            fNombre = Estilo.Fuente(t.FuenteFuerte, 13f, FontStyle.Regular, px);
+            fSub = Estilo.Fuente(t.FuenteTexto, 10.5f, FontStyle.Regular, px);
+            fPing = Estilo.Fuente(t.FuenteNumeros, 24f, t.EstiloNumeros, px);
+            fMs = Estilo.Fuente(t.FuenteTexto, 10.5f, FontStyle.Regular, px);
+            fDetalle = Estilo.Fuente(t.FuenteTexto, 10.5f, FontStyle.Regular, px);
+            fDiag = Estilo.Fuente(t.FuenteFuerte, 12f, FontStyle.Regular, px);
+            fNombreC = Estilo.Fuente(t.FuenteFuerte, 11.5f, FontStyle.Regular, px);
+            fValorC = Estilo.Fuente(t.FuenteNumeros, 13f, t.EstiloNumeros, px);
+            fUnidadC = Estilo.Fuente(t.FuenteTexto, 9.5f, FontStyle.Regular, px);
+            fDetalleC = Estilo.Fuente(t.FuenteTexto, 10.5f, FontStyle.Regular, px);
+            fDiagC = Estilo.Fuente(t.FuenteFuerte, 11f, FontStyle.Regular, px);
+        }
+
+        // Esquinas redondeadas en los temas nuevos (la ventana se recorta con esa forma)
+        void AjustarRegion()
+        {
+            Region anterior = Region;
+            if (Tema.Actual.Radio > 0)
+                using (GraphicsPath p = Redondeado(new RectangleF(0, 0, ClientSize.Width, ClientSize.Height), S(Tema.Actual.Radio)))
+                    Region = new Region(p);
+            else Region = null;
+            if (anterior != null) anterior.Dispose();
         }
 
         public void Actualizar(Fila[] nuevas, string diag, Color color)
@@ -2327,6 +2892,7 @@ namespace MonitorPing
             filas = nuevas;
             diagnostico = diag;
             colorDiagnostico = color;
+            capaSucia = true;
             if (Visible) Invalidate();
         }
 
@@ -2353,13 +2919,13 @@ namespace MonitorPing
         {
             base.OnMouseMove(e);
             bool sobre = EnCerrar(e.Location);
-            if (sobre != sobreCerrar) { sobreCerrar = sobre; Invalidate(); }
+            if (sobre != sobreCerrar) { sobreCerrar = sobre; capaSucia = true; Invalidate(); }
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (sobreCerrar) { sobreCerrar = false; Invalidate(); }
+            if (sobreCerrar) { sobreCerrar = false; capaSucia = true; Invalidate(); }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -2369,45 +2935,145 @@ namespace MonitorPing
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-            // Borde azul cuando está desbloqueado: se puede arrastrar
-            using (Pen borde = new Pen(bloqueado ? Color.FromArgb(58, 62, 72) : Acento, bloqueado ? 1 : 2))
-                g.DrawRectangle(borde, bloqueado ? 0 : 1, bloqueado ? 0 : 1, ancho - (bloqueado ? 1 : 2), alto - (bloqueado ? 1 : 2));
-
-            if (compacto) PintarCompacto(g);
-            else PintarNormal(g);
+            Tema t = Tema.Actual;
+            if (!t.Moderno)
+            {
+                PintarContenido(g, t);
+                return;
+            }
+            // Temas nuevos: el fondo cambia en cada imagen de la animación, pero el contenido (tarjetas, texto, gráficas)
+            // solo cuando llegan datos nuevos. Se dibuja una vez en una capa transparente y luego solo se pega encima
+            PintarFondoRapido(g, t);
+            if (capa == null || capa.Width != ClientSize.Width || capa.Height != ClientSize.Height)
+            {
+                if (capa != null) capa.Dispose();
+                capa = new Bitmap(Math.Max(1, ClientSize.Width), Math.Max(1, ClientSize.Height), System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                capaSucia = true;
+            }
+            if (capaSucia)
+            {
+                using (Graphics gc = Graphics.FromImage(capa))
+                {
+                    gc.Clear(Color.Transparent);
+                    gc.ScaleTransform(k, k);
+                    gc.SmoothingMode = SmoothingMode.AntiAlias;
+                    gc.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // sobre fondo transparente no se puede usar ClearType
+                    PintarContenido(gc, t);
+                }
+                capaSucia = false;
+            }
+            g.ResetTransform();
+            g.DrawImageUnscaled(capa, 0, 0);
         }
 
-        void PintarCompacto(Graphics g)
+        void PintarContenido(Graphics g, Tema t)
+        {
+            // Borde del color de acento cuando está desbloqueado: se puede arrastrar
+            using (Pen borde = new Pen(bloqueado ? t.BordePanel : t.Acento, bloqueado ? 1 : 2))
+            {
+                float m = bloqueado ? 0.5f : 1f;
+                if (t.Radio > 0)
+                    using (GraphicsPath p = Redondeado(new RectangleF(m, m, ancho - 2 * m, alto - 2 * m), t.Radio)) g.DrawPath(borde, p);
+                else g.DrawRectangle(borde, bloqueado ? 0 : 1, bloqueado ? 0 : 1, ancho - (bloqueado ? 1 : 2), alto - (bloqueado ? 1 : 2));
+            }
+
+            if (compacto) PintarCompacto(g, t);
+            else PintarNormal(g, t);
+        }
+
+        // Cada resplandor se dibuja una sola vez como imagen ya difuminada (lo caro) y en cada paso de la animación
+        // solo se pega en su nueva posición, sin escalar (muy barato). Así la animación casi no gasta CPU
+        void PintarFondoRapido(Graphics g, Tema t)
+        {
+            int w = ClientSize.Width, h = ClientSize.Height;
+            RectangleF r = new RectangleF(0, 0, w, h);
+            if (manchas == null || manchasTema != t || manchasTam != ClientSize)
+            {
+                LiberarManchas();
+                manchas = new Bitmap[t.Manchas.Length];
+                for (int i = 0; i < manchas.Length; i++)
+                {
+                    int d = (int)Math.Ceiling(Estilo.RadioMancha(i, r) * 2);
+                    manchas[i] = new Bitmap(d, d, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                    using (Graphics gm = Graphics.FromImage(manchas[i]))
+                    {
+                        gm.SmoothingMode = SmoothingMode.AntiAlias;
+                        Estilo.PintarMancha(gm, new RectangleF(0, 0, d, d), t, i);
+                    }
+                }
+                manchasTema = t;
+                manchasTam = ClientSize;
+            }
+            GraphicsState estado = g.Save();
+            g.ResetTransform(); // en píxeles reales: así las imágenes se pegan sin escalar
+            g.CompositingQuality = CompositingQuality.HighSpeed;
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = PixelOffsetMode.HighSpeed;
+            using (SolidBrush b = new SolidBrush(t.Fondo)) g.FillRectangle(b, r);
+            Rectangle ventana = new Rectangle(0, 0, w, h);
+            for (int i = 0; i < manchas.Length; i++)
+            {
+                PointF c = Estilo.CentroMancha(i, fase, r);
+                Rectangle destino = new Rectangle((int)(c.X - manchas[i].Width / 2f), (int)(c.Y - manchas[i].Height / 2f), manchas[i].Width, manchas[i].Height);
+                // Solo la parte del resplandor que cae dentro del widget
+                Rectangle visible = Rectangle.Intersect(destino, ventana);
+                if (visible.Width <= 0 || visible.Height <= 0) continue;
+                Rectangle origen = new Rectangle(visible.X - destino.X, visible.Y - destino.Y, visible.Width, visible.Height);
+                g.DrawImage(manchas[i], visible, origen, GraphicsUnit.Pixel);
+            }
+            g.Restore(estado);
+            if (t.Estrellas) Estilo.PintarEstrellas(g, new RectangleF(0, 0, ancho, alto), fase);
+        }
+
+        void LiberarManchas()
+        {
+            if (manchas == null) return;
+            foreach (Bitmap b in manchas) b.Dispose();
+            manchas = null;
+        }
+
+        // Tarjeta de cristal de los temas nuevos
+        static void Cristal(Graphics g, RectangleF r, float radio, Tema t)
+        {
+            using (GraphicsPath p = Redondeado(r, radio))
+            {
+                using (SolidBrush b = new SolidBrush(t.Panel)) g.FillPath(b, p);
+                using (Pen borde = new Pen(t.BordePanel)) g.DrawPath(borde, p);
+            }
+        }
+
+        void PintarCompacto(Graphics g, Tema t)
         {
             int y = MargenCompacto;
             foreach (Fila f in filas)
             {
                 using (SolidBrush b = new SolidBrush(f.Color)) g.FillEllipse(b, 8, y + 6, 8, 8);
-                using (SolidBrush b = new SolidBrush(Texto)) g.DrawString(f.Corto, fNombreC, b, new RectangleF(20, y + 2, 54, 17), recorte);
+                using (SolidBrush b = new SolidBrush(t.Texto)) g.DrawString(f.Corto, fNombreC, b, new RectangleF(20, y + 2, 54, 17), recorte);
                 using (SolidBrush b = new SolidBrush(f.Color)) g.DrawString(f.Valor, fValorC, b, new RectangleF(70, y, 48, 20), derecha);
-                using (SolidBrush b = new SolidBrush(TextoTenue)) g.DrawString(f.Unidad, fUnidadC, b, 119, y + 5);
-                using (SolidBrush b = new SolidBrush(f.Detalle1Malo ? Calidad.Rojo : TextoTenue))
+                using (SolidBrush b = new SolidBrush(t.TextoTenue)) g.DrawString(f.Unidad, fUnidadC, b, 119, y + 5);
+                using (SolidBrush b = new SolidBrush(f.Detalle1Malo ? Calidad.Rojo : t.TextoTenue))
                     g.DrawString(f.Corto1, fDetalleC, b, new RectangleF(138, y + 3, 60, 16), recorte);
-                using (SolidBrush b = new SolidBrush(TextoTenue))
+                using (SolidBrush b = new SolidBrush(t.TextoTenue))
                     g.DrawString(f.Corto2, fDetalleC, b, new RectangleF(198, y + 3, AnchoCompacto - 202, 16), recorte);
                 y += AltoFilaCompacta;
             }
+            if (t.Moderno) Cristal(g, new RectangleF(4, y + 1, AnchoCompacto - 8, AltoFilaCompacta - 2), 9, t);
             using (SolidBrush b = new SolidBrush(colorDiagnostico)) g.FillEllipse(b, 8, y + 6, 8, 8);
-            using (SolidBrush b = new SolidBrush(Texto))
+            using (SolidBrush b = new SolidBrush(t.Texto))
                 g.DrawString(diagnostico, fDiagC, b, new RectangleF(20, y + 2, AnchoCompacto - 26, 17), recorte);
         }
 
-        void PintarNormal(Graphics g)
+        void PintarNormal(Graphics g, Tema t)
         {
-            using (SolidBrush b = new SolidBrush(TextoTenue))
+            using (SolidBrush b = new SolidBrush(t.TextoTenue))
                 g.DrawString(bloqueado ? "MonitorPing · en vivo" : "MonitorPing · arrástralo para moverlo", fTitulo, b, 10, 5);
 
             if (!bloqueado)
             {
                 if (sobreCerrar)
-                    using (SolidBrush b = new SolidBrush(Color.FromArgb(60, 64, 74)))
+                    using (SolidBrush b = new SolidBrush(Color.FromArgb(50, t.Texto)))
                         g.FillRectangle(b, rCerrar);
-                using (Pen p = new Pen(Color.FromArgb(170, 175, 185), 1.4f))
+                using (Pen p = new Pen(t.TextoTenue, 1.4f))
                 {
                     int cx = rCerrar.X + rCerrar.Width / 2, cy = rCerrar.Y + rCerrar.Height / 2;
                     g.DrawLine(p, cx - 4, cy - 4, cx + 4, cy + 4);
@@ -2416,53 +3082,60 @@ namespace MonitorPing
             }
 
             int y = AltoCabecera;
-            using (Pen sep = new Pen(Separador))
+            using (Pen sep = new Pen(t.Separador))
             {
                 foreach (Fila f in filas)
                 {
-                    g.DrawLine(sep, 8, y, AnchoNormal - 8, y);
-                    DibujarFila(g, f, y);
+                    // Temas nuevos: cada fila en una tarjeta de cristal; Clásico: separadores
+                    if (t.Moderno) Cristal(g, new RectangleF(6, y + 3, AnchoNormal - 12, AltoFila - 6), 10, t);
+                    else g.DrawLine(sep, 8, y, AnchoNormal - 8, y);
+                    DibujarFila(g, f, y, t);
                     y += AltoFila;
                 }
-                g.DrawLine(sep, 8, y, AnchoNormal - 8, y);
+                if (!t.Moderno) g.DrawLine(sep, 8, y, AnchoNormal - 8, y);
             }
 
+            if (t.Moderno) Cristal(g, new RectangleF(6, y + 3, AnchoNormal - 12, AltoPie - 6), 11, t);
             using (SolidBrush b = new SolidBrush(colorDiagnostico))
                 g.FillEllipse(b, 11, y + 10, 8, 8);
-            using (SolidBrush b = new SolidBrush(Texto))
+            using (SolidBrush b = new SolidBrush(t.Texto))
                 g.DrawString(diagnostico, fDiag, b, new RectangleF(25, y + 5, AnchoNormal - 32, 18), recorte);
         }
 
-        void DibujarFila(Graphics g, Fila f, int y)
+        void DibujarFila(Graphics g, Fila f, int y, Tema t)
         {
-            using (SolidBrush b = new SolidBrush(Texto))
-                g.DrawString(f.Nombre, fNombre, b, 10, y + 7);
-            using (SolidBrush b = new SolidBrush(f.Aviso ? Calidad.Amarillo : TextoTenue))
-                g.DrawString(f.Sub ?? "", fSub, b, new RectangleF(10, y + 27, XPing - 14, 16), recorte);
+            using (SolidBrush b = new SolidBrush(t.Texto))
+                g.DrawString(f.Nombre, fNombre, b, 12, y + 7);
+            using (SolidBrush b = new SolidBrush(f.Aviso ? Calidad.Amarillo : t.TextoTenue))
+                g.DrawString(f.Sub ?? "", fSub, b, new RectangleF(12, y + 27, XPing - 16, 16), recorte);
 
             using (SolidBrush b = new SolidBrush(f.Color))
                 g.DrawString(f.Valor, fPing, b, new RectangleF(XPing, y + 4, 66, 36), derecha);
             if (f.Unidad != "")
-                using (SolidBrush b = new SolidBrush(TextoTenue))
+                using (SolidBrush b = new SolidBrush(t.TextoTenue))
                     g.DrawString(f.Unidad, fMs, b, XPing + 67, y + 19);
 
-            DibujarGrafica(g, new Rectangle(XGrafica, y + 7, AnchoNormal - XGrafica - 10, 22), f.Grafica, f.Color);
+            DibujarGrafica(g, new Rectangle(XGrafica, y + 7, AnchoNormal - XGrafica - 12, 22), f.Grafica, f.Color, t);
 
-            using (SolidBrush b = new SolidBrush(f.Detalle1Malo ? Calidad.Rojo : TextoTenue))
+            using (SolidBrush b = new SolidBrush(f.Detalle1Malo ? Calidad.Rojo : t.TextoTenue))
                 g.DrawString(f.Detalle1, fDetalle, b, XGrafica - 2, y + 31);
-            using (SolidBrush b = new SolidBrush(TextoTenue))
+            using (SolidBrush b = new SolidBrush(t.TextoTenue))
             using (StringFormat alDerecho = new StringFormat())
             {
                 alDerecho.Alignment = StringAlignment.Far;
-                g.DrawString(f.Detalle2, fDetalle, b, new RectangleF(XGrafica, y + 31, AnchoNormal - XGrafica - 8, 15), alDerecho);
+                g.DrawString(f.Detalle2, fDetalle, b, new RectangleF(XGrafica, y + 31, AnchoNormal - XGrafica - 10, 15), alDerecho);
             }
         }
 
-        // Últimos 60 s: línea con el valor y marcas rojas donde se perdió el paquete (o hubo un tirón)
-        static void DibujarGrafica(Graphics g, Rectangle r, int[] v, Color color)
+        // Últimos 60 s: línea con el valor y marcas rojas donde se perdió el paquete (o hubo un tirón).
+        // En los temas nuevos el fondo es redondeado y el área bajo la línea se rellena
+        static void DibujarGrafica(Graphics g, Rectangle r, int[] v, Color color, Tema t)
         {
-            using (SolidBrush fondo = new SolidBrush(Color.FromArgb(32, 35, 42)))
-                g.FillRectangle(fondo, r);
+            using (SolidBrush fondo = new SolidBrush(t.Grafica))
+            {
+                if (t.Moderno) using (GraphicsPath p = Redondeado(r, 5)) g.FillPath(fondo, p);
+                else g.FillRectangle(fondo, r);
+            }
             if (v == null || v.Length == 0) return;
             int max = 0, min = int.MaxValue;
             foreach (int x in v)
@@ -2476,15 +3149,40 @@ namespace MonitorPing
             float alto = Math.Max(max + 5, bajo + 30);
             float paso = (r.Width - 2) / 59f;
             int desplazamiento = 60 - Math.Min(60, v.Length);
+            int desde = Math.Max(0, v.Length - 60);
+            if (t.Moderno)
+            {
+                // Relleno suave bajo cada tramo continuo de la línea
+                List<PointF> tramo = new List<PointF>();
+                using (SolidBrush area = new SolidBrush(Color.FromArgb(50, color)))
+                {
+                    for (int i = desde; i <= v.Length; i++)
+                    {
+                        if (i < v.Length && v[i] >= 0)
+                        {
+                            float x = r.Left + 1 + (desplazamiento + i - desde) * paso;
+                            tramo.Add(new PointF(x, r.Bottom - 2 - ((v[i] - bajo) / (alto - bajo)) * (r.Height - 4)));
+                            continue;
+                        }
+                        if (tramo.Count >= 2)
+                        {
+                            tramo.Add(new PointF(tramo[tramo.Count - 1].X, r.Bottom - 1));
+                            tramo.Add(new PointF(tramo[0].X, r.Bottom - 1));
+                            g.FillPolygon(area, tramo.ToArray());
+                        }
+                        tramo.Clear();
+                    }
+                }
+            }
             using (Pen linea = new Pen(color, 1.5f))
             using (SolidBrush punto = new SolidBrush(color))
             using (Pen perdido = new Pen(Color.FromArgb(220, Calidad.Rojo), 1.5f))
             {
                 PointF previo = PointF.Empty;
                 bool hayPrevio = false;
-                for (int i = Math.Max(0, v.Length - 60); i < v.Length; i++)
+                for (int i = desde; i < v.Length; i++)
                 {
-                    float x = r.Left + 1 + (desplazamiento + i - Math.Max(0, v.Length - 60)) * paso;
+                    float x = r.Left + 1 + (desplazamiento + i - desde) * paso;
                     if (v[i] < 0)
                     {
                         g.DrawLine(perdido, x, r.Top + 2, x, r.Bottom - 2);
@@ -2516,6 +3214,9 @@ namespace MonitorPing
         {
             if (disposing)
             {
+                animacion.Dispose();
+                LiberarManchas();
+                if (capa != null) capa.Dispose();
                 foreach (Font f in new Font[] { fTitulo, fNombre, fSub, fPing, fMs, fDetalle, fDiag, fNombreC, fValorC, fUnidadC, fDetalleC, fDiagC }) f.Dispose();
                 recorte.Dispose();
                 derecha.Dispose();
@@ -2596,10 +3297,9 @@ namespace MonitorPing
 
     // Prueba del ratón con la ventana en primer plano: así Windows entrega todos los reportes
     // (a los programas en segundo plano se los limita, por eso el widget solo puede medir tirones grandes)
-    class PruebaRatonForm : Form
+    class PruebaRatonForm : VentanaTema
     {
         const double Duracion = 6; // segundos de medición desde el primer movimiento
-        static readonly Color VerdeTexto = Color.FromArgb(25, 135, 70), AmbarTexto = Color.FromArgb(190, 110, 0), RojoTexto = Color.FromArgb(200, 50, 40);
 
         readonly IntPtr bufer = Marshal.AllocHGlobal(256);
         readonly Dictionary<IntPtr, string> nombres = new Dictionary<IntPtr, string>();
@@ -2678,6 +3378,7 @@ namespace MonitorPing
 
             reloj.Interval = 100;
             reloj.Tick += delegate { Actualizar(); };
+            AplicarTema();
         }
 
         static Label Etiqueta(string texto, int ancho, bool tenue)
@@ -2740,7 +3441,7 @@ namespace MonitorPing
             {
                 lblEstado.Text = "No hubo suficiente movimiento rápido.";
                 lblVeredicto.Text = "Repite moviendo el ratón más rápido y sin parar.";
-                lblVeredicto.ForeColor = AmbarTexto;
+                lblVeredicto.ForeColor = tema.TextoAviso;
                 return;
             }
             Final = r;
@@ -2751,21 +3452,21 @@ namespace MonitorPing
                 r.HuecoMaxMs.ToString("0") + " ms · " + tirones;
 
             List<string> partes = new List<string>();
-            Color c = VerdeTexto;
+            Color c = tema.TextoOk;
             if (r.Dispositivo == "touchpad u otro")
             {
                 partes.Add("Esto parece el touchpad: repite moviendo el Razer.");
-                c = AmbarTexto;
+                c = tema.TextoAviso;
             }
             if (r.Hz < 500)
             {
                 partes.Add("Reporta a solo " + r.Hz + " Hz; para jugar conviene 1000 Hz. Súbelo en Razer Synapse (Rendimiento > Frecuencia de sondeo).");
-                c = AmbarTexto;
+                c = tema.TextoAviso;
             }
             if (r.Tirones > 0)
             {
                 partes.Add("Hubo " + tirones + " (el más largo de " + r.HuecoMaxMs.ToString("0") + " ms). Prueba otro puerto USB directo al PC (sin hub ni alargador) y cierra programas pesados.");
-                c = RojoTexto;
+                c = tema.TextoMal;
             }
             if (partes.Count == 0)
                 partes.Add("El ratón va perfecto: " + r.Hz + " Hz y sin tirones. Si en el juego notas tirones, vienen del stream (fila GFN/xCloud) o de pausas del PC.");
@@ -2976,34 +3677,35 @@ namespace MonitorPing
                 if (pierde) { internetConPerdida++; conPerdida.Add(d.Nombre + " (" + Calidad.Porcentaje(e.Perdida) + ")"); }
             }
             string extra = sinRespuesta.Count > 0 ? " No respondieron (pueden bloquear el ping): " + string.Join(", ", sinRespuesta.ToArray()) + "." : "";
+            Tema t = Tema.Actual;
             if (router != null && router.Perdidos >= 2 && router.Perdida >= 1)
             {
-                color = Color.FromArgb(200, 50, 40);
+                color = t.TextoMal;
                 return "Se pierden paquetes ya en tu red local (router " + Calidad.Porcentaje(router.Perdida) + "): revisa el Wi-Fi o prueba con cable." + extra;
             }
             if (internet == 0)
             {
-                color = SystemColors.GrayText;
+                color = t.TenueVentana;
                 return "No hay datos suficientes para sacar una conclusión." + extra;
             }
             if (internetConPerdida == internet && internet >= 2)
             {
-                color = Color.FromArgb(200, 50, 40);
+                color = t.TextoMal;
                 return "Todos los servidores pierden paquetes (" + Calidad.Porcentaje(minPerdida) + " a " + Calidad.Porcentaje(maxPerdida) +
                        "): el problema es tu conexión a internet o tu proveedor, no los servidores." + extra;
             }
             if (internetConPerdida > 0)
             {
-                color = Color.FromArgb(190, 110, 0);
+                color = t.TextoAviso;
                 return "Solo se pierden paquetes hacia: " + string.Join(", ", conPerdida.ToArray()) +
                        ". Tu conexión está bien; el problema es la ruta hasta ese servidor o el propio servidor." + extra;
             }
-            color = Color.FromArgb(25, 135, 70);
+            color = t.TextoOk;
             return (maxPerdida > 0 ? "Pérdida mínima (menos del 1 %), algo normal: tu conexión está bien." : "Sin pérdida de paquetes: tu conexión está limpia.") + extra;
         }
     }
 
-    class PruebaPerdidaForm : Form
+    class PruebaPerdidaForm : VentanaTema
     {
         class Opcion
         {
@@ -3057,7 +3759,7 @@ namespace MonitorPing
             if (vpn != null)
             {
                 Label aviso = Etiqueta("La VPN (" + vpn + ") está activa: la prueba mediría el camino de la VPN. Apágala para probar tu conexión real.", ancho, false);
-                aviso.ForeColor = Color.FromArgb(190, 110, 0);
+                aviso.ForeColor = tema.TextoAviso;
                 panel.Controls.Add(aviso);
             }
 
@@ -3116,6 +3818,7 @@ namespace MonitorPing
             filaBotones.Margin = new Padding(0, 8, 0, 4);
             btnIniciar = new Button();
             btnIniciar.Text = "Iniciar prueba";
+            btnIniciar.Tag = "principal"; // con los temas nuevos lleva el degradado
             btnIniciar.AutoSize = true;
             btnIniciar.Click += delegate { IniciarODetener(); };
             btnCopiar = new Button();
@@ -3140,7 +3843,7 @@ namespace MonitorPing
             lvResultados.Width = ancho;
             lvResultados.Height = (int)(170 * k);
             string[] columnas = { "Servidor", "Enviados", "Perdidos", "Pérdida", "Mín", "Prom", "Máx", "Jitter", "Racha" };
-            int[] anchos = { 200, 58, 58, 56, 40, 42, 42, 46, 46 };
+            int[] anchos = { 196, 64, 64, 56, 40, 42, 42, 46, 46 };
             for (int i = 0; i < columnas.Length; i++)
                 lvResultados.Columns.Add(columnas[i], (int)(anchos[i] * k), i == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right);
             panel.Controls.Add(lvResultados);
@@ -3155,6 +3858,7 @@ namespace MonitorPing
             reloj.Interval = 250;
             reloj.Tick += delegate { Actualizar(); };
             FormClosing += delegate { if (prueba != null) prueba.Cancelar(); reloj.Stop(); };
+            AplicarTema();
         }
 
         void LlenarServidores(Config cfg, int mejorGfn, int mejorXcloud)
@@ -3238,7 +3942,7 @@ namespace MonitorPing
             {
                 PruebaPerdida.Destino d = prueba.Destinos[i];
                 ListViewItem it = lvResultados.Items[i];
-                if (d.Error != null) { it.SubItems[1].Text = d.Error; it.ForeColor = SystemColors.GrayText; continue; }
+                if (d.Error != null) { it.SubItems[1].Text = d.Error; it.ForeColor = tema.TenueVentana; continue; }
                 PruebaPerdida.Estadistica e = PruebaPerdida.Calcular(d);
                 it.SubItems[1].Text = e.Enviados.ToString();
                 it.SubItems[2].Text = e.Perdidos.ToString();
@@ -3248,10 +3952,10 @@ namespace MonitorPing
                 it.SubItems[6].Text = Ms(e.Max);
                 it.SubItems[7].Text = e.Respondidos > 1 ? Math.Round(e.Jitter).ToString() : "–";
                 it.SubItems[8].Text = e.RachaMax.ToString();
-                if (e.Respondidos == 0 && e.Perdidos >= 5) it.ForeColor = SystemColors.GrayText;
-                else if (e.Perdida >= 2) it.ForeColor = Color.FromArgb(200, 50, 40);
-                else if (e.Perdida > 0) it.ForeColor = Color.FromArgb(190, 110, 0);
-                else it.ForeColor = Color.FromArgb(25, 135, 70);
+                if (e.Respondidos == 0 && e.Perdidos >= 5) it.ForeColor = tema.TenueVentana;
+                else if (e.Perdida >= 2) it.ForeColor = tema.TextoMal;
+                else if (e.Perdida > 0) it.ForeColor = tema.TextoAviso;
+                else it.ForeColor = tema.TextoOk;
             }
 
             if (prueba.Terminado)
@@ -3342,11 +4046,11 @@ namespace MonitorPing
         }
     }
 
-    class ConfigForm : Form
+    class ConfigForm : VentanaTema
     {
-        ComboBox cmbEEUU, cmbZonaGfn, cmbZonaXcloud;
+        ComboBox cmbEEUU, cmbZonaGfn, cmbZonaXcloud, cmbTema;
         TextBox txtGfn;
-        CheckBox chkEncima, chkMostrar, chkInicio, chkCompacto, chkBloqueado, chkGfn, chkXcloud, chkEeuu, chkRouter, chkRaton;
+        CheckBox chkEncima, chkMostrar, chkInicio, chkCompacto, chkBloqueado, chkGfn, chkXcloud, chkEeuu, chkRouter, chkRaton, chkAnimado;
         TrackBar trkOpacidad;
         Label lblOpacidad;
         ListBox lstZonas;
@@ -3386,6 +4090,8 @@ namespace MonitorPing
         public bool VerEeuu { get { return chkEeuu.Checked; } }
         public bool VerRouter { get { return chkRouter.Checked; } }
         public bool VerRaton { get { return chkRaton.Checked; } }
+        public string NombreTema { get { return Tema.Todos[Math.Max(0, cmbTema.SelectedIndex)].Clave; } }
+        public bool Animado { get { return chkAnimado.Checked; } }
 
         static string Codigo(ComboBox c, ListaZonas l) { return c.SelectedIndex <= 0 ? "" : l.Codigos[c.SelectedIndex - 1]; }
 
@@ -3417,6 +4123,21 @@ namespace MonitorPing
 
             // --- Widget ---
             panel.Controls.Add(Titulo("Widget"));
+            FlowLayoutPanel filaTema = Horizontal();
+            Label lTema = Etiqueta("Tema:", false, ancho);
+            lTema.Margin = new Padding(3, 6, 3, 3);
+            cmbTema = new ComboBox();
+            cmbTema.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbTema.Width = (int)(150 * k);
+            foreach (Tema t in Tema.Todos) cmbTema.Items.Add(t.Nombre);
+            cmbTema.SelectedIndex = Math.Max(0, Array.IndexOf(Tema.Todos, Tema.Buscar(cfg.NombreTema)));
+            chkAnimado = Casilla("Fondo animado", cfg.Animado);
+            chkAnimado.Margin = new Padding(12, 5, 3, 3);
+            filaTema.Controls.Add(lTema);
+            filaTema.Controls.Add(cmbTema);
+            filaTema.Controls.Add(chkAnimado);
+            panel.Controls.Add(filaTema);
+            panel.Controls.Add(Etiqueta("El tema cambia el widget, el menú, el icono y estas ventanas. Se aplica al guardar.", true, ancho));
             chkCompacto = Casilla("Modo compacto (una línea por servicio)", cfg.Compacto);
             chkBloqueado = Casilla("Modo monitor: el ratón atraviesa el widget", cfg.Bloqueado);
             panel.Controls.Add(chkCompacto);
@@ -3471,7 +4192,7 @@ namespace MonitorPing
             if (vpn != null)
             {
                 Label aviso = Etiqueta("La VPN (" + vpn + ") está activa: apágala para que estos tiempos sean los reales.", false, ancho);
-                aviso.ForeColor = Color.FromArgb(190, 110, 0);
+                aviso.ForeColor = tema.TextoAviso;
                 panel.Controls.Add(aviso);
             }
             lstZonas = new ListBox();
@@ -3529,6 +4250,7 @@ namespace MonitorPing
             CancelButton = cancel;
             panel.Controls.Add(botones);
             Controls.Add(panel);
+            AplicarTema();
         }
 
         static ComboBox Zonas(ListaZonas lista, string codigo, int ancho)
@@ -3591,6 +4313,7 @@ namespace MonitorPing
         static Label Titulo(string texto)
         {
             Label l = new Label();
+            l.Tag = "titulo"; // con los temas nuevos va en el color de acento
             l.Text = texto;
             l.AutoSize = true;
             l.Font = new Font("Segoe UI Semibold", 10f);

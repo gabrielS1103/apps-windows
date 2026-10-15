@@ -14,6 +14,7 @@ Monitor de conexión para jugar en la nube (GeForce NOW y Xbox Cloud) con un wid
 - **Prueba de pérdida de paquetes:** prueba varios servidores a la vez (router, Cloudflare, Google, EE.UU., zonas de GFN, regiones de xCloud o cualquier host) durante 30 s a 30 min, a 1–10 paquetes por segundo. Muestra pérdida, ping mín/prom/máx, jitter y rachas de pérdidas, concluye si el problema es tu red, tu proveedor o un servidor, y copia los resultados.
 - **Ratón y PC:** detecta tirones del ratón y pausas del sistema, e incluye una prueba de ratón en primer plano para ver su frecuencia real.
 - **Widget tipo monitor:** el ratón lo atraviesa, tiene transparencia ajustable y modo compacto, y queda por debajo de los menús del sistema.
+- **Temas:** Clásico, Aurora (azul marino con resplandores y degradados iridiscentes), Cristal claro y Cristal violeta (cristal esmerilado sobre degradados pastel). Cambian el widget, el menú, el icono y todas las ventanas, con fondo animado opcional.
 
 Necesita permisos de administrador para leer el tráfico del stream (solo cabeceras, nunca el contenido).
 
