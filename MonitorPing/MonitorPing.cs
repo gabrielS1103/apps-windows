@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -697,10 +698,10 @@ namespace MonitorPing
             return Estado.Perdido;
         }
 
-        const int SIO_TCP_INITIAL_RTO = unchecked((int)0x98000011);
+        public const int SIO_TCP_INITIAL_RTO = unchecked((int)0x98000011);
         // TCP_INITIAL_RTO_PARAMETERS: RTT sin especificar (0xFFFF) y ningún reintento de SYN (0xFE).
         // Sin esto Windows reintenta ~2 s antes de avisar de un rechazo y no se podría medir.
-        static readonly byte[] SinReintentosSyn = { 0xFF, 0xFF, 0xFE, 0x00 };
+        public static readonly byte[] SinReintentosSyn = { 0xFF, 0xFF, 0xFE, 0x00 };
 
         // Tiempo de ida y vuelta del saludo TCP: vale tanto si el servidor acepta (SYN-ACK) como si rechaza (RST)
         public static int PingTcp(IPAddress dir, int puerto)
@@ -1501,6 +1502,7 @@ namespace MonitorPing
         string claveIcono;
         ConfigForm formAbierto;
         PruebaRatonForm pruebaAbierta;
+        PruebaPerdidaForm pruebaPerdida;
 
         public TrayContext()
         {
@@ -1531,6 +1533,7 @@ namespace MonitorPing
             menu.Items.Add(itemEncima);
             menu.Items.Add(itemInicio);
             menu.Items.Add("Configuración...", null, delegate { AbrirConfig(); });
+            menu.Items.Add("Prueba de pérdida de paquetes...", null, delegate { AbrirPruebaPerdida(); });
             menu.Items.Add("Probar ratón...", null, delegate { AbrirPruebaRaton(); });
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(itemAnalisis);
@@ -1904,6 +1907,20 @@ namespace MonitorPing
             return f;
         }
 
+        // Ventana normal (no modal): una prueba larga puede quedar corriendo mientras se usa el PC
+        void AbrirPruebaPerdida()
+        {
+            if (pruebaPerdida != null)
+            {
+                if (pruebaPerdida.WindowState == FormWindowState.Minimized) pruebaPerdida.WindowState = FormWindowState.Normal;
+                pruebaPerdida.Activate();
+                return;
+            }
+            pruebaPerdida = new PruebaPerdidaForm(cfg, vpn, selGfn.Mejor, selXcloud.Mejor);
+            pruebaPerdida.FormClosed += delegate { pruebaPerdida.Dispose(); pruebaPerdida = null; };
+            pruebaPerdida.Show();
+        }
+
         void AbrirPruebaRaton()
         {
             if (pruebaAbierta != null) { pruebaAbierta.Activate(); return; }
@@ -2192,6 +2209,7 @@ namespace MonitorPing
         void Salir()
         {
             timer.Stop();
+            if (pruebaPerdida != null) pruebaPerdida.Close();
             Native.UnhookWinEvent(ganchoMostrar);
             Native.UnhookWinEvent(ganchoPrimerPlano);
             gfn.Parar();
@@ -2774,6 +2792,552 @@ namespace MonitorPing
         {
             if (disposing) reloj.Dispose();
             if (!liberado) { Marshal.FreeHGlobal(bufer); liberado = true; }
+            base.Dispose(disposing);
+        }
+    }
+
+    // Prueba de pérdida de paquetes: manda paquetes a varios servidores a la vez durante un tiempo y cuenta cuántos se pierden.
+    // Cada paquete se envía sin esperar la respuesta del anterior, así una pérdida no frena el ritmo.
+    class PruebaPerdida
+    {
+        public class Destino
+        {
+            public string Nombre, Host;
+            public bool Tcp;              // servidores de juego: no responden al ping, se mide la conexión TCP al 443
+            public int IntervaloMs, Total;
+            public string Error;
+            public int[] Resultados;      // ms por paquete; -1 = perdido; -2 = todavía sin respuesta
+            public volatile int Enviados;
+        }
+
+        public class Estadistica
+        {
+            public int Enviados, Respondidos, Perdidos, RachaMax, Min = -1, Max = -1;
+            public double Perdida, Promedio, Jitter;
+        }
+
+        public const int MaxTcpPorSegundo = 2; // para no saturar de conexiones a los servidores de juego
+        public readonly List<Destino> Destinos = new List<Destino>();
+        public int Tamano = 32;
+        volatile bool cancelado;
+        int activos;
+
+        public bool Terminado { get { return Thread.VolatileRead(ref activos) == 0; } }
+
+        public void Agregar(string nombre, string host, bool tcp, int porSegundo, int segundos)
+        {
+            Destino d = new Destino();
+            d.Nombre = nombre;
+            d.Host = host;
+            d.Tcp = tcp;
+            int ps = tcp ? Math.Min(porSegundo, MaxTcpPorSegundo) : porSegundo;
+            d.IntervaloMs = 1000 / ps;
+            d.Total = ps * segundos;
+            d.Resultados = new int[d.Total];
+            for (int i = 0; i < d.Total; i++) d.Resultados[i] = -2;
+            Destinos.Add(d);
+        }
+
+        public void Iniciar()
+        {
+            byte[] datos = new byte[Tamano];
+            activos = Destinos.Count;
+            foreach (Destino d in Destinos)
+            {
+                Destino destino = d;
+                Thread t = new Thread(delegate ()
+                {
+                    try { Enviar(destino, datos); }
+                    finally { Interlocked.Decrement(ref activos); }
+                });
+                t.IsBackground = true;
+                t.Start();
+            }
+        }
+
+        public void Cancelar() { cancelado = true; }
+
+        void Enviar(Destino d, byte[] datos)
+        {
+            IPAddress ip = Sonda.Resolver(d.Host);
+            if (ip == null) { d.Error = "no se encuentra"; return; }
+            Stopwatch reloj = Stopwatch.StartNew();
+            for (int i = 0; i < d.Total && !cancelado; i++)
+            {
+                long espera = (long)i * d.IntervaloMs - reloj.ElapsedMilliseconds;
+                if (espera > 0) Thread.Sleep((int)espera);
+                if (cancelado) break;
+                int n = i;
+                Action<int> guardar = delegate(int ms) { d.Resultados[n] = ms; };
+                if (d.Tcp) TcpAsincrono(ip, 443, guardar);
+                else IcmpAsincrono(ip, datos, guardar);
+                d.Enviados = i + 1;
+            }
+            Thread.Sleep(1200); // las últimas respuestas pueden tardar hasta 1 s
+        }
+
+        static void IcmpAsincrono(IPAddress ip, byte[] datos, Action<int> fin)
+        {
+            Ping p = new Ping();
+            try
+            {
+                p.SendPingAsync(ip, 1000, datos).ContinueWith(delegate(Task<PingReply> t)
+                {
+                    int ms = -1;
+                    if (t.Status == TaskStatus.RanToCompletion && t.Result.Status == IPStatus.Success) ms = (int)t.Result.RoundtripTime;
+                    fin(ms);
+                    p.Dispose();
+                });
+            }
+            catch { fin(-1); p.Dispose(); }
+        }
+
+        // Como Sonda.PingTcp (SYN-ACK o RST cuentan como respuesta), pero sin bloquear el hilo
+        static void TcpAsincrono(IPAddress ip, int puerto, Action<int> fin)
+        {
+            Socket s = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            Stopwatch reloj = Stopwatch.StartNew();
+            int hecho = 0;
+            System.Threading.Timer limite = null;
+            Action<int> terminar = delegate(int ms)
+            {
+                if (Interlocked.Exchange(ref hecho, 1) != 0) return;
+                fin(ms);
+                try { s.Close(); } catch { }
+            };
+            try
+            {
+                try { s.IOControl(Sonda.SIO_TCP_INITIAL_RTO, Sonda.SinReintentosSyn, null); } catch { }
+                s.BeginConnect(ip, puerto, delegate(IAsyncResult ar)
+                {
+                    int ms = -1;
+                    try { s.EndConnect(ar); ms = (int)reloj.ElapsedMilliseconds; }
+                    catch (SocketException ex) { if (ex.SocketErrorCode == SocketError.ConnectionRefused) ms = (int)reloj.ElapsedMilliseconds; }
+                    catch { }
+                    terminar(ms > 1000 ? -1 : ms);
+                }, null);
+                limite = new System.Threading.Timer(delegate { terminar(-1); limite.Dispose(); }, null, 1000, Timeout.Infinite);
+            }
+            catch { terminar(-1); }
+        }
+
+        public static Estadistica Calcular(Destino d)
+        {
+            Estadistica e = new Estadistica();
+            e.Enviados = d.Enviados;
+            long suma = 0, saltos = 0;
+            int nSaltos = 0, previo = -1, racha = 0;
+            for (int i = 0; i < e.Enviados; i++)
+            {
+                int v = d.Resultados[i];
+                if (v == -2) continue; // aún esperando respuesta
+                if (v < 0)
+                {
+                    e.Perdidos++;
+                    racha++;
+                    if (racha > e.RachaMax) e.RachaMax = racha;
+                    previo = -1;
+                    continue;
+                }
+                racha = 0;
+                e.Respondidos++;
+                suma += v;
+                if (e.Min < 0 || v < e.Min) e.Min = v;
+                if (v > e.Max) e.Max = v;
+                if (previo >= 0) { saltos += Math.Abs(v - previo); nSaltos++; }
+                previo = v;
+            }
+            int completos = e.Respondidos + e.Perdidos;
+            e.Perdida = completos > 0 ? e.Perdidos * 100.0 / completos : 0;
+            e.Promedio = e.Respondidos > 0 ? (double)suma / e.Respondidos : 0;
+            e.Jitter = nSaltos > 0 ? (double)saltos / nSaltos : 0;
+            return e;
+        }
+
+        static bool EsRouter(Destino d) { return d.Nombre.StartsWith("Router"); }
+
+        // Si pierden todos, es tu conexión; si pierde solo alguno, es esa ruta o ese servidor
+        public string Conclusion(out Color color)
+        {
+            List<string> conPerdida = new List<string>(), sinRespuesta = new List<string>();
+            int internet = 0, internetConPerdida = 0;
+            double minPerdida = double.MaxValue, maxPerdida = 0;
+            Estadistica router = null;
+            foreach (Destino d in Destinos)
+            {
+                Estadistica e = Calcular(d);
+                if (d.Error != null || e.Respondidos + e.Perdidos < 10) continue;
+                if (e.Respondidos == 0) { sinRespuesta.Add(d.Nombre); continue; }
+                bool pierde = e.Perdidos >= 2 && e.Perdida >= 1;
+                if (EsRouter(d)) { router = e; continue; }
+                internet++;
+                minPerdida = Math.Min(minPerdida, e.Perdida);
+                maxPerdida = Math.Max(maxPerdida, e.Perdida);
+                if (pierde) { internetConPerdida++; conPerdida.Add(d.Nombre + " (" + Calidad.Porcentaje(e.Perdida) + ")"); }
+            }
+            string extra = sinRespuesta.Count > 0 ? " No respondieron (pueden bloquear el ping): " + string.Join(", ", sinRespuesta.ToArray()) + "." : "";
+            if (router != null && router.Perdidos >= 2 && router.Perdida >= 1)
+            {
+                color = Color.FromArgb(200, 50, 40);
+                return "Se pierden paquetes ya en tu red local (router " + Calidad.Porcentaje(router.Perdida) + "): revisa el Wi-Fi o prueba con cable." + extra;
+            }
+            if (internet == 0)
+            {
+                color = SystemColors.GrayText;
+                return "No hay datos suficientes para sacar una conclusión." + extra;
+            }
+            if (internetConPerdida == internet && internet >= 2)
+            {
+                color = Color.FromArgb(200, 50, 40);
+                return "Todos los servidores pierden paquetes (" + Calidad.Porcentaje(minPerdida) + " a " + Calidad.Porcentaje(maxPerdida) +
+                       "): el problema es tu conexión a internet o tu proveedor, no los servidores." + extra;
+            }
+            if (internetConPerdida > 0)
+            {
+                color = Color.FromArgb(190, 110, 0);
+                return "Solo se pierden paquetes hacia: " + string.Join(", ", conPerdida.ToArray()) +
+                       ". Tu conexión está bien; el problema es la ruta hasta ese servidor o el propio servidor." + extra;
+            }
+            color = Color.FromArgb(25, 135, 70);
+            return (maxPerdida > 0 ? "Pérdida mínima (menos del 1 %), algo normal: tu conexión está bien." : "Sin pérdida de paquetes: tu conexión está limpia.") + extra;
+        }
+    }
+
+    class PruebaPerdidaForm : Form
+    {
+        class Opcion
+        {
+            public string Nombre, Host;
+            public bool Tcp;
+            public override string ToString() { return Nombre + (Tcp ? "   (TCP)" : ""); }
+        }
+
+        static readonly int[] Duraciones = { 30, 60, 120, 300, 600, 1800 };
+        static readonly string[] NombresDuracion = { "30 segundos", "1 minuto", "2 minutos", "5 minutos", "10 minutos", "30 minutos" };
+        static readonly int[] Ritmos = { 1, 2, 5, 10 };
+
+        CheckedListBox lstServidores;
+        TextBox txtOtro;
+        ComboBox cmbDuracion, cmbRitmo, cmbTamano;
+        Button btnIniciar, btnCopiar;
+        ProgressBar barra;
+        Label lblTiempo, lblConclusion;
+        ListView lvResultados;
+        readonly List<Control> opciones = new List<Control>(); // se bloquean mientras corre la prueba
+        readonly System.Windows.Forms.Timer reloj = new System.Windows.Forms.Timer();
+        PruebaPerdida prueba;
+        DateTime inicio;
+        int segundosTotal;
+        string parametros = "";
+
+        public PruebaPerdidaForm(Config cfg, string vpn, int mejorGfn, int mejorXcloud)
+        {
+            Text = "MonitorPing - Prueba de pérdida de paquetes";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            ShowIcon = false;
+            StartPosition = FormStartPosition.CenterScreen;
+            Font = new Font("Segoe UI", 9f);
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+
+            float k;
+            using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) k = g.DpiX / 96f;
+            int ancho = (int)(600 * k);
+
+            FlowLayoutPanel panel = new FlowLayoutPanel();
+            panel.FlowDirection = FlowDirection.TopDown;
+            panel.WrapContents = false;
+            panel.AutoSize = true;
+            panel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            panel.Padding = new Padding(12, 10, 12, 10);
+
+            panel.Controls.Add(Etiqueta("Manda paquetes a los servidores que marques, todos a la vez, y cuenta cuántos se pierden. " +
+                "Si pierden todos, el problema es tu conexión; si pierde solo uno, es la ruta hasta ese servidor.", ancho, false));
+            if (vpn != null)
+            {
+                Label aviso = Etiqueta("La VPN (" + vpn + ") está activa: la prueba mediría el camino de la VPN. Apágala para probar tu conexión real.", ancho, false);
+                aviso.ForeColor = Color.FromArgb(190, 110, 0);
+                panel.Controls.Add(aviso);
+            }
+
+            panel.Controls.Add(Etiqueta("Servidores:", ancho, false));
+            lstServidores = new CheckedListBox();
+            lstServidores.CheckOnClick = true;
+            lstServidores.Width = ancho;
+            lstServidores.Height = (int)(150 * k);
+            lstServidores.IntegralHeight = false;
+            LlenarServidores(cfg, mejorGfn, mejorXcloud);
+            panel.Controls.Add(lstServidores);
+            opciones.Add(lstServidores);
+
+            FlowLayoutPanel filaOtro = Horizontal();
+            txtOtro = new TextBox();
+            txtOtro.Width = (int)(300 * k);
+            Button btnAgregar = new Button();
+            btnAgregar.Text = "Agregar otro host o IP";
+            btnAgregar.AutoSize = true;
+            btnAgregar.Click += delegate
+            {
+                string h = txtOtro.Text.Trim();
+                if (h == "") return;
+                Opcion o = new Opcion();
+                o.Nombre = h;
+                o.Host = h;
+                lstServidores.Items.Add(o, true);
+                txtOtro.Text = "";
+            };
+            filaOtro.Controls.Add(txtOtro);
+            filaOtro.Controls.Add(btnAgregar);
+            panel.Controls.Add(filaOtro);
+            opciones.Add(txtOtro);
+            opciones.Add(btnAgregar);
+
+            FlowLayoutPanel filaParametros = Horizontal();
+            cmbDuracion = Desplegable(NombresDuracion, 1, (int)(110 * k));
+            string[] ritmos = new string[Ritmos.Length];
+            for (int i = 0; i < Ritmos.Length; i++) ritmos[i] = Ritmos[i] + " por segundo";
+            cmbRitmo = Desplegable(ritmos, 2, (int)(110 * k));
+            cmbTamano = Desplegable(new string[] { "32 bytes", "1.200 bytes" }, 0, (int)(95 * k));
+            filaParametros.Controls.Add(EtiquetaCentrada("Duración:"));
+            filaParametros.Controls.Add(cmbDuracion);
+            filaParametros.Controls.Add(EtiquetaCentrada("Paquetes:"));
+            filaParametros.Controls.Add(cmbRitmo);
+            filaParametros.Controls.Add(EtiquetaCentrada("Tamaño:"));
+            filaParametros.Controls.Add(cmbTamano);
+            panel.Controls.Add(filaParametros);
+            opciones.Add(cmbDuracion);
+            opciones.Add(cmbRitmo);
+            opciones.Add(cmbTamano);
+            panel.Controls.Add(Etiqueta("Los servidores de juego (TCP) no responden al ping: se miden con una conexión, como máximo " +
+                PruebaPerdida.MaxTcpPorSegundo + " por segundo. El tamaño solo afecta a los demás.", ancho, true));
+
+            FlowLayoutPanel filaBotones = Horizontal();
+            filaBotones.Margin = new Padding(0, 8, 0, 4);
+            btnIniciar = new Button();
+            btnIniciar.Text = "Iniciar prueba";
+            btnIniciar.AutoSize = true;
+            btnIniciar.Click += delegate { IniciarODetener(); };
+            btnCopiar = new Button();
+            btnCopiar.Text = "Copiar resultados";
+            btnCopiar.AutoSize = true;
+            btnCopiar.Enabled = false;
+            btnCopiar.Click += delegate { Copiar(); };
+            filaBotones.Controls.Add(btnIniciar);
+            filaBotones.Controls.Add(btnCopiar);
+            panel.Controls.Add(filaBotones);
+
+            barra = new ProgressBar();
+            barra.Width = ancho;
+            panel.Controls.Add(barra);
+            lblTiempo = Etiqueta("", ancho, true);
+            panel.Controls.Add(lblTiempo);
+
+            lvResultados = new ListView();
+            lvResultados.View = View.Details;
+            lvResultados.FullRowSelect = true;
+            lvResultados.HeaderStyle = ColumnHeaderStyle.Nonclickable;
+            lvResultados.Width = ancho;
+            lvResultados.Height = (int)(170 * k);
+            string[] columnas = { "Servidor", "Enviados", "Perdidos", "Pérdida", "Mín", "Prom", "Máx", "Jitter", "Racha" };
+            int[] anchos = { 200, 58, 58, 56, 40, 42, 42, 46, 46 };
+            for (int i = 0; i < columnas.Length; i++)
+                lvResultados.Columns.Add(columnas[i], (int)(anchos[i] * k), i == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right);
+            panel.Controls.Add(lvResultados);
+            panel.Controls.Add(Etiqueta("Mín, Prom, Máx y Jitter en ms. Racha: la mayor cantidad de paquetes perdidos seguidos.", ancho, true));
+
+            lblConclusion = Etiqueta("", ancho, false);
+            lblConclusion.Font = new Font("Segoe UI Semibold", 9.5f);
+            lblConclusion.Margin = new Padding(3, 6, 3, 3);
+            panel.Controls.Add(lblConclusion);
+
+            Controls.Add(panel);
+            reloj.Interval = 250;
+            reloj.Tick += delegate { Actualizar(); };
+            FormClosing += delegate { if (prueba != null) prueba.Cancelar(); reloj.Stop(); };
+        }
+
+        void LlenarServidores(Config cfg, int mejorGfn, int mejorXcloud)
+        {
+            IPAddress gw = Native.PuertaDeEnlace();
+            if (gw != null) AgregarOpcion("Router (" + gw + ")", gw.ToString(), false, true);
+            AgregarOpcion("Cloudflare (1.1.1.1)", "1.1.1.1", false, true);
+            AgregarOpcion("Google (8.8.8.8)", "8.8.8.8", false, false);
+            for (int i = 0; i < Servidores.Hosts.Length; i++)
+                AgregarOpcion("EE.UU. · " + Servidores.Nombres[i], Servidores.Hosts[i], false,
+                    string.Equals(Servidores.Hosts[i], cfg.ServidorEEUU, StringComparison.OrdinalIgnoreCase));
+            int zg = ListaZonas.Gfn.Indice(cfg.ZonaGfn);
+            if (zg < 0) zg = mejorGfn;
+            for (int i = 0; i < ListaZonas.Gfn.Hosts.Length; i++)
+                AgregarOpcion("GFN · " + ListaZonas.Gfn.Nombres[i], ListaZonas.Gfn.Hosts[i], true, i == zg);
+            int zx = ListaZonas.Xcloud.Indice(cfg.ZonaXcloud);
+            if (zx < 0) zx = mejorXcloud;
+            for (int i = 0; i < ListaZonas.Xcloud.Hosts.Length; i++)
+                AgregarOpcion("xCloud · " + ListaZonas.Xcloud.Nombres[i], ListaZonas.Xcloud.Hosts[i], true, i == zx);
+        }
+
+        void AgregarOpcion(string nombre, string host, bool tcp, bool marcada)
+        {
+            Opcion o = new Opcion();
+            o.Nombre = nombre;
+            o.Host = host;
+            o.Tcp = tcp;
+            lstServidores.Items.Add(o, marcada);
+        }
+
+        void IniciarODetener()
+        {
+            if (prueba != null && !prueba.Terminado)
+            {
+                prueba.Cancelar();
+                btnIniciar.Enabled = false;
+                btnIniciar.Text = "Deteniendo...";
+                return;
+            }
+            if (lstServidores.CheckedItems.Count == 0)
+            {
+                MessageBox.Show("Marca al menos un servidor.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            int segundos = Duraciones[cmbDuracion.SelectedIndex], ritmo = Ritmos[cmbRitmo.SelectedIndex];
+            prueba = new PruebaPerdida();
+            prueba.Tamano = cmbTamano.SelectedIndex == 0 ? 32 : 1200;
+            foreach (Opcion o in lstServidores.CheckedItems) prueba.Agregar(o.Nombre, o.Host, o.Tcp, ritmo, segundos);
+
+            lvResultados.Items.Clear();
+            foreach (PruebaPerdida.Destino d in prueba.Destinos)
+            {
+                ListViewItem it = new ListViewItem(d.Nombre);
+                for (int c = 1; c < lvResultados.Columns.Count; c++) it.SubItems.Add("");
+                lvResultados.Items.Add(it);
+            }
+            inicio = DateTime.Now;
+            segundosTotal = segundos;
+            parametros = inicio.ToString("dd/MM/yyyy HH:mm") + " · " + NombresDuracion[cmbDuracion.SelectedIndex] + " · " +
+                         ritmo + " paquetes por segundo · " + prueba.Tamano + " bytes";
+            foreach (Control c in opciones) c.Enabled = false;
+            btnCopiar.Enabled = false;
+            btnIniciar.Text = "Detener";
+            lblConclusion.Text = "";
+            barra.Value = 0;
+            prueba.Iniciar();
+            reloj.Start();
+        }
+
+        static string Ms(int v) { return v < 0 ? "–" : v.ToString(); }
+
+        void Actualizar()
+        {
+            if (prueba == null) return;
+            double s = (DateTime.Now - inicio).TotalSeconds;
+            barra.Value = (int)Math.Min(100, s * 100 / segundosTotal);
+            int resta = (int)Math.Max(0, Math.Ceiling(segundosTotal - s));
+            lblTiempo.Text = prueba.Terminado ? "Prueba terminada." : "Quedan " + (resta >= 60 ? resta / 60 + " min " + resta % 60 + " s" : resta + " s") + "...";
+
+            for (int i = 0; i < prueba.Destinos.Count; i++)
+            {
+                PruebaPerdida.Destino d = prueba.Destinos[i];
+                ListViewItem it = lvResultados.Items[i];
+                if (d.Error != null) { it.SubItems[1].Text = d.Error; it.ForeColor = SystemColors.GrayText; continue; }
+                PruebaPerdida.Estadistica e = PruebaPerdida.Calcular(d);
+                it.SubItems[1].Text = e.Enviados.ToString();
+                it.SubItems[2].Text = e.Perdidos.ToString();
+                it.SubItems[3].Text = e.Respondidos == 0 && e.Perdidos >= 5 ? "no responde" : Calidad.Porcentaje(e.Perdida);
+                it.SubItems[4].Text = Ms(e.Min);
+                it.SubItems[5].Text = e.Respondidos > 0 ? Math.Round(e.Promedio).ToString() : "–";
+                it.SubItems[6].Text = Ms(e.Max);
+                it.SubItems[7].Text = e.Respondidos > 1 ? Math.Round(e.Jitter).ToString() : "–";
+                it.SubItems[8].Text = e.RachaMax.ToString();
+                if (e.Respondidos == 0 && e.Perdidos >= 5) it.ForeColor = SystemColors.GrayText;
+                else if (e.Perdida >= 2) it.ForeColor = Color.FromArgb(200, 50, 40);
+                else if (e.Perdida > 0) it.ForeColor = Color.FromArgb(190, 110, 0);
+                else it.ForeColor = Color.FromArgb(25, 135, 70);
+            }
+
+            if (prueba.Terminado)
+            {
+                reloj.Stop();
+                barra.Value = 100;
+                foreach (Control c in opciones) c.Enabled = true;
+                btnIniciar.Enabled = true;
+                btnIniciar.Text = "Iniciar prueba";
+                btnCopiar.Enabled = true;
+                Color color;
+                lblConclusion.Text = prueba.Conclusion(out color);
+                lblConclusion.ForeColor = color;
+            }
+        }
+
+        void Copiar()
+        {
+            if (prueba == null) return;
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("Prueba de pérdida de paquetes (MonitorPing) · " + parametros);
+            sb.AppendLine();
+            sb.AppendLine(string.Format("{0,-42} {1,8} {2,8} {3,8} {4,6} {5,6} {6,6} {7,7} {8,6}", "Servidor", "Enviados", "Perdidos", "Pérdida", "Mín", "Prom", "Máx", "Jitter", "Racha"));
+            foreach (PruebaPerdida.Destino d in prueba.Destinos)
+            {
+                if (d.Error != null) { sb.AppendLine(string.Format("{0,-42} {1}", d.Nombre, d.Error)); continue; }
+                PruebaPerdida.Estadistica e = PruebaPerdida.Calcular(d);
+                sb.AppendLine(string.Format("{0,-42} {1,8} {2,8} {3,8} {4,6} {5,6} {6,6} {7,7} {8,6}",
+                    d.Nombre + (d.Tcp ? " (TCP)" : ""), e.Enviados, e.Perdidos, Calidad.Porcentaje(e.Perdida), Ms(e.Min),
+                    e.Respondidos > 0 ? Math.Round(e.Promedio).ToString() : "–", Ms(e.Max),
+                    e.Respondidos > 1 ? Math.Round(e.Jitter).ToString() : "–", e.RachaMax));
+            }
+            sb.AppendLine();
+            sb.AppendLine("Conclusión: " + lblConclusion.Text);
+            sb.AppendLine("(tiempos en ms)");
+            try
+            {
+                Clipboard.SetText(sb.ToString());
+                lblTiempo.Text = "Resultados copiados: pégalos donde quieras (Ctrl+V).";
+            }
+            catch { lblTiempo.Text = "No se pudo copiar al portapapeles; vuelve a intentarlo."; }
+        }
+
+        static ComboBox Desplegable(string[] items, int seleccion, int ancho)
+        {
+            ComboBox c = new ComboBox();
+            c.DropDownStyle = ComboBoxStyle.DropDownList;
+            c.Items.AddRange(items);
+            c.SelectedIndex = seleccion;
+            c.Width = ancho;
+            return c;
+        }
+
+        static Label Etiqueta(string texto, int ancho, bool tenue)
+        {
+            Label l = new Label();
+            l.Text = texto;
+            l.AutoSize = true;
+            l.MaximumSize = new Size(ancho, 0);
+            if (tenue) l.ForeColor = SystemColors.GrayText;
+            return l;
+        }
+
+        static Label EtiquetaCentrada(string texto)
+        {
+            Label l = new Label();
+            l.Text = texto;
+            l.AutoSize = true;
+            l.Margin = new Padding(3, 7, 3, 3);
+            return l;
+        }
+
+        static FlowLayoutPanel Horizontal()
+        {
+            FlowLayoutPanel p = new FlowLayoutPanel();
+            p.FlowDirection = FlowDirection.LeftToRight;
+            p.WrapContents = false;
+            p.AutoSize = true;
+            p.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            p.Margin = new Padding(0, 3, 0, 3);
+            return p;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) reloj.Dispose();
             base.Dispose(disposing);
         }
     }
