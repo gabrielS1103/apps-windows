@@ -1,0 +1,5 @@
+# Los .exe se generan con compilar.bat y se publican en la sección "Releases" de GitHub
+*.exe
+
+# Herramientas de Android (adb) que ScrollRemoto descarga solo de Google: no son parte de este proyecto
+ScrollRemoto/platform-tools/
