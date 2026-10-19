@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/fila"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="8dp"
+    android:paddingTop="6dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/fila_original"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/texto_original"
+        android:textSize="15sp"
+        tools:text="Paper lanterns over the river" />
+
+    <TextView
+        android:id="@+id/fila_traducida"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/texto_traducido"
+        android:textSize="14sp"
+        tools:text="Linternas de papel sobre el río" />
+</LinearLayout>

@@ -1,8 +1,8 @@
-# Apps para Windows
+# Apps para Windows y Android
 
-Pequeñas utilidades para Windows 10/11 escritas en C# (WinForms). Cada una es un solo `.exe` sin instalación ni dependencias: usan el .NET Framework 4 que ya trae Windows.
+Pequeñas utilidades para Windows 10/11 escritas en C# (WinForms) y una app para Android (Kotlin). Las de Windows son un solo `.exe` sin instalación ni dependencias: usan el .NET Framework 4 que ya trae Windows.
 
-Los `.exe` listos para usar están en la sección **[Releases](../../releases)**.
+Los `.exe` y el `.apk` listos para usar están en la sección **[Releases](../../releases)**.
 
 ## Las apps
 
@@ -27,5 +27,20 @@ Evita que la pantalla se apague o que el equipo se suspenda moviendo el ratón d
 ### ScrollRemoto
 Controla un teléfono Android por Wi‑Fi con la depuración inalámbrica (adb): vincula el teléfono con un código QR y pasa los videos con atajos de teclado o con los botones laterales del ratón. La primera vez descarga las Android Platform-Tools oficiales de Google.
 
+### LetrasEnVivo (Android)
+Muestra sobre YouTube Music (o cualquier reproductor) una ventana flotante con la letra de la canción que suena, sincronizada con la reproducción, como los subtítulos en vivo. Las letras no se transcriben del audio: se buscan en internet.
+- **Letras sincronizadas** de LRCLIB, NetEase y Kugou (sin clave ni cuenta). Se elige la grabación con la misma duración y el mismo artista que la que suena.
+- **Vídeos musicales:** detecta cuándo suena el vídeo en vez de la pista de audio y retrasa la letra lo que dura la intro del vídeo.
+- **Traducción al español hecha por personas** desde lyricstranslate.com, alineada línea a línea con la letra original. Si no hay traducción humana, puede traducir en el teléfono con ML Kit como último recurso (se marca como automática; se puede desactivar).
+- **Modos:** original + español, solo español o solo original; tamaño de letra y opacidad ajustables.
+- **Botón en el panel de ajustes rápidos** (el que baja desde arriba, junto a Wi‑Fi y Bluetooth) para encender o apagar la ventana con un toque. La app lo añade al panel con un botón; también se puede arrastrar desde «editar panel».
+- Toca la ventana para ver la letra completa tipo karaoke; arrástrala para moverla. Si algo va desfasado, toca en la lista la línea que estás oyendo y queda sincronizada para esa canción (también hay botones de −0,5 s / +0,5 s).
+- Si ninguna fuente tiene la letra con tiempos, la ventana lo avisa en vez de inventarlos, y puedes leer la letra entera.
+- Guarda en caché cada canción para que la segunda vez sea instantánea y funcione sin conexión. Una pantalla de depuración muestra qué fuentes se usaron y cómo quedó la alineación.
+
+Necesita dos permisos que se conceden desde la propia app: **acceso a notificaciones** (para saber qué canción suena y en qué segundo va) y **mostrar sobre otras apps**. No usa el micrófono ni graba nada.
+
 ## Compilar
-Cada carpeta tiene un `compilar.bat`: haz doble clic y genera el `.exe` con el compilador `csc.exe` que incluye Windows (`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319`). No hace falta instalar Visual Studio.
+**Apps de Windows:** cada carpeta tiene un `compilar.bat`: haz doble clic y genera el `.exe` con el compilador `csc.exe` que incluye Windows (`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319`). No hace falta instalar Visual Studio.
+
+**LetrasEnVivo (Android):** abre la carpeta `LetrasEnVivo` en Android Studio y usa *Build > Build APK*, o ejecuta `gradlew.bat assembleDebug` dentro de esa carpeta (necesita el SDK de Android y un JDK 17; Android Studio los instala). El APK queda en `app/build/outputs/apk/debug/`. Instálalo con `adb install` (vale el adb que descarga ScrollRemoto) o copiándolo al teléfono.

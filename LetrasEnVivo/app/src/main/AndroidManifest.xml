@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Para poder comprobar si YouTube Music / YouTube están instalados -->
+    <queries>
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.google.android.youtube" />
+    </queries>
+
+    <application
+        android:name=".AplicacionLetras"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/nombre_app"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LetrasEnVivo"
+        tools:targetApi="34">
+
+        <!-- Pantalla principal: permisos, interruptor y accesos -->
+        <activity
+            android:name=".ajustes.ActividadPrincipal"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ajustes.ActividadAjustes"
+            android:exported="false"
+            android:label="@string/titulo_ajustes"
+            android:parentActivityName=".ajustes.ActividadPrincipal" />
+
+        <activity
+            android:name=".ajustes.PantallaDepuracion"
+            android:exported="false"
+            android:label="@string/titulo_depuracion"
+            android:parentActivityName=".ajustes.ActividadPrincipal" />
+
+        <!-- Actividad invisible: plan B para arrancar el servicio en primer plano desde el panel -->
+        <activity
+            android:name=".panel.ActividadInterruptor"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay" />
+
+        <!-- Escucha de notificaciones: solo sirve para tener acceso a las sesiones de medios -->
+        <service
+            android:name=".deteccion.ServicioEscuchaNotificaciones"
+            android:exported="true"
+            android:label="@string/nombre_app"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Servicio en primer plano que mantiene la ventana flotante -->
+        <service
+            android:name=".superposicion.ServicioSuperposicion"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ventana flotante con la letra sincronizada de la canción en reproducción" />
+        </service>
+
+        <!-- Botón del panel de ajustes rápidos -->
+        <service
+            android:name=".panel.BotonPanel"
+            android:exported="true"
+            android:icon="@drawable/ic_letras"
+            android:label="@string/nombre_boton_panel"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="false" />
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
+        </service>
+    </application>
+</manifest>

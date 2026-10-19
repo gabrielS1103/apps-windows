@@ -3,3 +3,13 @@
 
 # Herramientas de Android (adb) que ScrollRemoto descarga solo de Google: no son parte de este proyecto
 ScrollRemoto/platform-tools/
+
+# LetrasEnVivo (Android): salidas de compilación y archivos locales de Android Studio / Gradle
+LetrasEnVivo/build/
+LetrasEnVivo/app/build/
+LetrasEnVivo/.gradle/
+LetrasEnVivo/.idea/
+LetrasEnVivo/.kotlin/
+LetrasEnVivo/local.properties
+*.apk
+*.aab

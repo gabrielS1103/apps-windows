@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="modos_nombres">
+        <item>Original + español</item>
+        <item>Solo español</item>
+        <item>Solo original</item>
+    </string-array>
+    <string-array name="modos_valores">
+        <item>AMBOS</item>
+        <item>SOLO_ESPANOL</item>
+        <item>SOLO_ORIGINAL</item>
+    </string-array>
+
+    <string-array name="apps_nombres">
+        <item>Solo YouTube Music</item>
+        <item>YouTube Music y YouTube</item>
+        <item>Cualquier reproductor</item>
+    </string-array>
+    <string-array name="apps_valores">
+        <item>YTMUSIC</item>
+        <item>YOUTUBE</item>
+        <item>CUALQUIERA</item>
+    </string-array>
+</resources>

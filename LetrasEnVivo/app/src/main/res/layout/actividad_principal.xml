@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/margen">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/principal_descripcion"
+            android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+        <!-- Interruptor principal -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/boton_interruptor"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="@dimen/margen"
+            android:text="@string/interruptor_encender"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/texto_estado"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/margen_pequeno"
+            android:gravity="center"
+            android:text="@string/estado_apagada"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <TextView
+            android:id="@+id/texto_cancion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:text="@string/sin_cancion"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            tools:text="Coldplay – Yellow" />
+
+        <!-- Permisos -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/principal_permisos"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <LinearLayout
+            android:id="@+id/lista_permisos"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!-- Botón del panel -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/boton_anadir_panel"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/anadir_al_panel" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/anadir_al_panel_ayuda"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/boton_ajustes"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="@dimen/margen_pequeno"
+                android:layout_weight="1"
+                android:text="@string/abrir_ajustes" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/boton_depuracion"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/abrir_depuracion" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

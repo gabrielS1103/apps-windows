@@ -1,0 +1,11 @@
+# Salidas de compilación y archivos locales de Android Studio / Gradle
+build/
+app/build/
+.gradle/
+.idea/
+.kotlin/
+local.properties
+*.apk
+*.aab
+*.iml
+captures/

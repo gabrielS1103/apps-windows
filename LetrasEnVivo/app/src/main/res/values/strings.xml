@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nombre_app">Letras en vivo</string>
+    <string name="nombre_boton_panel">Letras en vivo</string>
+    <string name="titulo_ajustes">Ajustes</string>
+    <string name="titulo_depuracion">Depuración</string>
+
+    <!-- Pantalla principal -->
+    <string name="principal_descripcion">Muestra sobre YouTube Music una ventana flotante con la letra de la canción que suena, sincronizada y traducida al español. Las letras se buscan en internet; no se graba nada.</string>
+    <string name="principal_permisos">Permisos necesarios</string>
+    <string name="permiso_notificaciones">Acceso a notificaciones</string>
+    <string name="permiso_notificaciones_detalle">Para saber qué canción está sonando y en qué segundo va.</string>
+    <string name="permiso_superposicion">Mostrar sobre otras apps</string>
+    <string name="permiso_superposicion_detalle">Para dibujar la ventana flotante encima de YouTube Music.</string>
+    <string name="permiso_avisos">Notificaciones</string>
+    <string name="permiso_avisos_detalle">Para la notificación fija mientras la ventana está activa.</string>
+    <string name="permiso_bateria">Sin optimización de batería</string>
+    <string name="permiso_bateria_detalle">Opcional. Evita que el sistema cierre la ventana a los pocos minutos.</string>
+    <string name="concedido">Concedido</string>
+    <string name="pendiente">Pendiente</string>
+    <string name="conceder">Conceder</string>
+    <string name="interruptor_encender">Encender ventana flotante</string>
+    <string name="interruptor_apagar">Apagar ventana flotante</string>
+    <string name="estado_apagada">Ventana apagada</string>
+    <string name="estado_encendida">Ventana encendida</string>
+    <string name="anadir_al_panel">Añadir botón al panel de ajustes rápidos</string>
+    <string name="anadir_al_panel_ayuda">Si no aparece, baja el panel, toca el lápiz de editar y arrastra «Letras en vivo».</string>
+    <string name="abrir_ajustes">Ajustes</string>
+    <string name="abrir_depuracion">Depuración</string>
+    <string name="faltan_permisos">Faltan permisos. Concédelos desde la app.</string>
+    <string name="cancion_actual">Canción actual</string>
+    <string name="sin_cancion">Nada sonando</string>
+
+    <!-- Ventana flotante -->
+    <string name="buscando_letra">Buscando letra…</string>
+    <string name="sin_letra">Sin letra para esta canción</string>
+    <string name="sin_conexion">Sin conexión</string>
+    <string name="instrumental">♪ Instrumental</string>
+    <string name="sin_musica">Esperando música…</string>
+    <string name="anuncio">Anuncio</string>
+    <string name="falta_acceso_notificaciones">Falta el acceso a notificaciones</string>
+    <string name="aproximada">≈ tiempos aproximados</string>
+    <string name="sin_tiempos">Sin letra sincronizada para esta versión · toca ⌄ para leerla</string>
+    <string name="traduccion_automatica">traducción automática</string>
+    <string name="version_distinta">vídeo: abre ⌄ y toca la línea que suena</string>
+    <string name="toca_para_sincronizar">Toca la línea que estás oyendo para sincronizar</string>
+    <string name="cerrar">Cerrar</string>
+    <string name="ajustes">Ajustes</string>
+    <string name="menos_medio_segundo">−0,5 s</string>
+    <string name="mas_medio_segundo">+0,5 s</string>
+    <string name="sin_traduccion">(sin traducción)</string>
+
+    <!-- Notificación -->
+    <string name="canal_servicio">Ventana flotante</string>
+    <string name="notificacion_titulo">Letras en vivo activas</string>
+    <string name="notificacion_detener">Detener</string>
+
+    <!-- Depuración -->
+    <string name="dep_copiar">Copiar informe</string>
+    <string name="dep_reintentar">Reintentar sin caché</string>
+    <string name="dep_copiado">Informe copiado</string>
+</resources>

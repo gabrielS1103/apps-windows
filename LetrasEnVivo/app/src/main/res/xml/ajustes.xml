@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory android:title="Pantalla">
+
+        <ListPreference
+            android:defaultValue="AMBOS"
+            android:entries="@array/modos_nombres"
+            android:entryValues="@array/modos_valores"
+            android:key="modo_visualizacion"
+            android:title="Qué mostrar"
+            app:useSimpleSummaryProvider="true" />
+
+        <SeekBarPreference
+            android:defaultValue="18"
+            android:key="tamano_fuente"
+            android:max="30"
+            android:title="Tamaño de letra"
+            app:min="12"
+            app:showSeekBarValue="true" />
+
+        <SeekBarPreference
+            android:defaultValue="85"
+            android:key="opacidad"
+            android:max="100"
+            android:title="Opacidad del fondo (%)"
+            app:min="20"
+            app:showSeekBarValue="true" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="mostrar_siguiente"
+            android:summary="Debajo de la línea actual, en pequeño."
+            android:title="Mostrar la línea siguiente" />
+
+        <Preference
+            android:key="restablecer_posicion"
+            android:summary="Devuelve la ventana flotante a su sitio inicial."
+            android:title="Restablecer posición" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Sincronización">
+
+        <SeekBarPreference
+            android:defaultValue="20"
+            android:key="desfase_global"
+            android:max="40"
+            android:summary="Adelanta o atrasa todas las letras. Cada paso son 0,25 s; 20 es 0."
+            android:title="Desfase general"
+            app:min="0"
+            app:showSeekBarValue="true" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="repartir_sin_tiempos"
+            android:summary="Si ninguna fuente tiene la letra con tiempos, la reparte a ojo por toda la canción. Casi nunca cuadra: desactivado, la ventana avisa y puedes leer la letra entera."
+            android:title="Repartir letras sin tiempos" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Fuentes de letras">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="usar_lrclib"
+            android:summary="Letras con tiempos de LRCLIB, NetEase y Kugou. Gratis, sin cuenta."
+            android:title="Letras sincronizadas" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="usar_lyricstranslate"
+            android:summary="Traducciones hechas por personas (lyricstranslate.com)."
+            android:title="Traducción al español" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="usar_mlkit"
+            android:summary="Solo si no hay traducción humana. Se traduce en el teléfono (Google ML Kit) y se marca como automática. El modelo se descarga una vez por Wi‑Fi."
+            android:title="Traducir en el teléfono como último recurso" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Reproductores">
+
+        <ListPreference
+            android:defaultValue="YTMUSIC"
+            android:entries="@array/apps_nombres"
+            android:entryValues="@array/apps_valores"
+            android:key="apps_objetivo"
+            android:title="Escuchar a"
+            app:useSimpleSummaryProvider="true" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="ocultar_sin_musica"
+            android:summary="Si no suena nada durante un rato, la ventana se esconde sola."
+            android:title="Ocultar sin música" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Datos">
+
+        <Preference
+            android:key="borrar_cache"
+            android:summary="Olvida las letras guardadas; se volverán a buscar."
+            android:title="Borrar caché de letras" />
+    </PreferenceCategory>
+</PreferenceScreen>
